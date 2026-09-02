@@ -176,6 +176,14 @@ export function Dashboard() {
           <span className={webmcp ? "pill pill-ok" : "pill pill-warn"}>
             {webmcp === null ? "WebMCP ○ Checking" : webmcp ? "WebMCP ● Available" : "WebMCP ○ Unavailable"}
           </span>
+          <a
+            href="/webmcp-extension.zip"
+            download="webmcp-extension.zip"
+            className="btn"
+            title="Download ready-to-load Chrome Extension for WhatsApp Web & Motion"
+          >
+            📦 Extension (.zip)
+          </a>
           <Link href="/webmcp-test" className="btn">
             Smoke test
           </Link>
