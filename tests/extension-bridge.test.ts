@@ -23,6 +23,11 @@ describe("WebMCP Extension Bridge Unit Tests", () => {
       });
       assert.equal(resYouTube.allowed, true);
 
+      const resYouTubeSelect = checkExtensionPolicy("youtube", "select_video", {
+        index: 0,
+      });
+      assert.equal(resYouTubeSelect.allowed, true);
+
       const resYouTubePlay = checkExtensionPolicy("youtube", "play_pause", {});
       assert.equal(resYouTubePlay.allowed, true);
 

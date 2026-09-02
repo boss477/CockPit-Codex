@@ -283,18 +283,62 @@
     });
 
     instance.registerTool({
+      name: "select_video",
+      description: "Click and open a video from the YouTube search results or homepage",
+      inputSchema: {
+        type: "object",
+        properties: {
+          index: { type: "number", description: "Zero-based index of the video to open (default 0)" },
+        },
+      },
+      readOnlyHint: false,
+      execute: async ({ index = 0 }) => {
+        for (let i = 0; i < 5; i++) {
+          const links = Array.from(
+            document.querySelectorAll(
+              "ytd-video-renderer a#video-title, ytd-rich-item-renderer a#video-title-link, a#video-title, ytd-video-renderer a#thumbnail"
+            )
+          );
+          if (links.length > 0) {
+            const target = links[Math.min(index, links.length - 1)];
+            const title = target.textContent?.trim() || "video";
+            target.click();
+            return { ok: true, message: `Opened video: "${title}"` };
+          }
+          await new Promise((r) => setTimeout(r, 400));
+        }
+        return { ok: false, error: "No video elements found in search results to click." };
+      },
+    });
+
+    instance.registerTool({
       name: "play_pause",
       description: "Play or pause the current YouTube video",
       inputSchema: { type: "object" },
       readOnlyHint: false,
       execute: async () => {
-        const video = document.querySelector("video");
+        const playBtn =
+          document.querySelector("button.ytp-play-button") ||
+          document.querySelector(".ytp-play-button");
+
+        if (playBtn) {
+          playBtn.click();
+          await new Promise((r) => setTimeout(r, 100));
+          return { ok: true, message: "Toggled YouTube player playback" };
+        }
+
+        const video =
+          document.querySelector("video.html5-main-video") ||
+          document.querySelector("video");
+
         if (!video) {
-          return { ok: false, error: "No active video element found on page." };
+          return { ok: false, error: "No video element found. Please open a video first using select_video." };
         }
 
         if (video.paused) {
-          await video.play();
+          try {
+            video.play().catch(() => {});
+          } catch {}
           return { ok: true, state: "playing", currentTime: Math.round(video.currentTime) };
         } else {
           video.pause();
@@ -315,12 +359,16 @@
       },
       readOnlyHint: false,
       execute: async ({ seconds }) => {
-        const video = document.querySelector("video");
+        const video =
+          document.querySelector("video.html5-main-video") ||
+          document.querySelector("video");
+
         if (!video) {
-          return { ok: false, error: "No active video element found on page." };
+          return { ok: false, error: "No active video element found. Please open a video first using select_video." };
         }
+
         video.currentTime = Number(seconds);
-        return { ok: true, message: `Seeked video to ${seconds}s`, currentTime: video.currentTime };
+        return { ok: true, message: `Seeked video to ${seconds}s`, currentTime: Math.round(video.currentTime) };
       },
     });
 

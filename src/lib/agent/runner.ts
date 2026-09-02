@@ -384,15 +384,25 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
   // -------------------------------------------------------------
   if (toolNames.some((n) => n.includes("video") || n.includes("play_pause"))) {
     const searchTool = byName(manifest, "search_videos") || manifest.tools[0];
+    const selectTool = byName(manifest, "select_video");
     const detailsTool = byName(manifest, "get_video_details") || manifest.tools[1];
-    const playTool = byName(manifest, "play_pause") || manifest.tools[2];
     const seekTool = byName(manifest, "seek_to") || manifest.tools[3];
+    const playTool = byName(manifest, "play_pause") || manifest.tools[2];
 
     if (searchTool) {
       await call(searchTool, { query: "lofi hip hop radio" }, "Searched for lofi hip hop videos", {
         ok: true,
         message: "Found top streaming video: 'lofi hip hop radio - beats to relax/study to'",
       });
+    }
+
+    if (selectTool) {
+      await sleep(1500);
+      await call(selectTool, { index: 0 }, "Selected and opened top video from search results", {
+        ok: true,
+        message: "Opened video 'lofi hip hop radio - beats to relax/study to'",
+      });
+      await sleep(2000);
     }
 
     if (detailsTool) {
