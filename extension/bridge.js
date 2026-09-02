@@ -228,12 +228,161 @@
     },
   });
 
+  // -------------------------------------------------------------
+  // YOUTUBE ADAPTER
+  // -------------------------------------------------------------
+  function registerYouTubeTools() {
+    console.log("%c[WebMCP Bridge] YouTube detected! Registering video controls...", "color: #FF0000; font-weight: bold;");
+
+    instance.registerTool({
+      name: "search_videos",
+      description: "Search for videos on YouTube",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query keywords" },
+        },
+        required: ["query"],
+      },
+      readOnlyHint: true,
+      execute: async ({ query }) => {
+        const searchInput =
+          document.querySelector("input#search") ||
+          document.querySelector('input[name="search_query"]') ||
+          document.querySelector("input[type='text']");
+
+        if (!searchInput) {
+          return { ok: false, error: "YouTube search box not found." };
+        }
+
+        searchInput.focus();
+        searchInput.value = query;
+        searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+        const searchButton =
+          document.querySelector("button#search-icon-legacy") ||
+          document.querySelector("#search-form button") ||
+          searchInput.closest("form")?.querySelector("button");
+
+        if (searchButton) {
+          searchButton.click();
+        } else {
+          searchInput.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Enter",
+              code: "Enter",
+              keyCode: 13,
+              which: 13,
+              bubbles: true,
+            })
+          );
+        }
+
+        return { ok: true, message: `Searched YouTube for "${query}"` };
+      },
+    });
+
+    instance.registerTool({
+      name: "play_pause",
+      description: "Play or pause the current YouTube video",
+      inputSchema: { type: "object" },
+      readOnlyHint: false,
+      execute: async () => {
+        const video = document.querySelector("video");
+        if (!video) {
+          return { ok: false, error: "No active video element found on page." };
+        }
+
+        if (video.paused) {
+          await video.play();
+          return { ok: true, state: "playing", currentTime: Math.round(video.currentTime) };
+        } else {
+          video.pause();
+          return { ok: true, state: "paused", currentTime: Math.round(video.currentTime) };
+        }
+      },
+    });
+
+    instance.registerTool({
+      name: "seek_to",
+      description: "Jump to a specific timestamp in seconds in the video",
+      inputSchema: {
+        type: "object",
+        properties: {
+          seconds: { type: "number", description: "Timestamp in seconds" },
+        },
+        required: ["seconds"],
+      },
+      readOnlyHint: false,
+      execute: async ({ seconds }) => {
+        const video = document.querySelector("video");
+        if (!video) {
+          return { ok: false, error: "No active video element found on page." };
+        }
+        video.currentTime = Number(seconds);
+        return { ok: true, message: `Seeked video to ${seconds}s`, currentTime: video.currentTime };
+      },
+    });
+
+    instance.registerTool({
+      name: "get_video_details",
+      description: "Retrieve title, channel, duration, and playback status of current video",
+      inputSchema: { type: "object" },
+      readOnlyHint: true,
+      execute: async () => {
+        const video = document.querySelector("video");
+        const titleEl =
+          document.querySelector("h1.ytd-watch-metadata yt-formatted-string") ||
+          document.querySelector("h1.title yt-formatted-string") ||
+          document.querySelector("h1");
+        const channelEl =
+          document.querySelector("ytd-channel-name a") ||
+          document.querySelector("#channel-name a");
+
+        return {
+          ok: true,
+          title: titleEl?.textContent?.trim() || document.title,
+          channel: channelEl?.textContent?.trim() || "Unknown",
+          paused: video ? video.paused : null,
+          currentTime: video ? Math.round(video.currentTime) : 0,
+          duration: video ? Math.round(video.duration) : 0,
+          volume: video ? Math.round(video.volume * 100) : 0,
+        };
+      },
+    });
+
+    instance.registerTool({
+      name: "set_volume",
+      description: "Set playback volume (0 to 100)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          level: { type: "number", description: "Volume level from 0 to 100" },
+        },
+        required: ["level"],
+      },
+      readOnlyHint: false,
+      execute: async ({ level }) => {
+        const video = document.querySelector("video");
+        if (!video) {
+          return { ok: false, error: "No video element found." };
+        }
+        const val = Math.max(0, Math.min(100, Number(level)));
+        video.volume = val / 100;
+        video.muted = false;
+        return { ok: true, volume: val };
+      },
+    });
+  }
+
   // Check host
   const host = window.location.hostname;
   if (host.includes("whatsapp.com")) {
     registerWhatsAppTools();
   } else if (host.includes("motion.so") || host.includes("usemotion.com")) {
     registerMotionTools();
+  } else if (host.includes("youtube.com")) {
+    registerYouTubeTools();
   }
 
   // -------------------------------------------------------------

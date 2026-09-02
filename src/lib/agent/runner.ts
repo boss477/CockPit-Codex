@@ -41,6 +41,11 @@ export function getTaskForManifest(manifest: ToolManifest | null): string {
     return "Check today's open calendar slots, schedule 'Client Demo Sync' meeting, and create an urgent follow-up task.";
   }
 
+  // YouTube / Video controls
+  if (toolNames.some((n) => n.includes("video") || n.includes("play_pause"))) {
+    return "Search for lo-fi beats video, inspect video details, and control player playback.";
+  }
+
   // Stripe / Payments
   if (toolNames.some((n) => n.includes("payment") || n.includes("customer"))) {
     return "Look up customer account, initialize payment intent for $49.00 USD, and verify payment status.";
@@ -364,6 +369,46 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
         "Created follow-up task with high priority",
         { ok: true, message: "Task added to project backlog." },
       );
+    }
+
+    return steps;
+  }
+
+  // -------------------------------------------------------------
+  // Scenario: YouTube Video Player & Search Interface
+  // -------------------------------------------------------------
+  if (toolNames.some((n) => n.includes("video") || n.includes("play_pause"))) {
+    const searchTool = byName(manifest, "search_videos") || manifest.tools[0];
+    const detailsTool = byName(manifest, "get_video_details") || manifest.tools[1];
+    const playTool = byName(manifest, "play_pause") || manifest.tools[2];
+    const seekTool = byName(manifest, "seek_to") || manifest.tools[3];
+
+    if (searchTool) {
+      await call(searchTool, { query: "lofi hip hop radio" }, "Searched for lofi hip hop videos", {
+        ok: true,
+        message: "Found top streaming video: 'lofi hip hop radio - beats to relax/study to'",
+      });
+    }
+
+    if (detailsTool) {
+      await call(detailsTool, {}, "Inspected current video player metadata", {
+        ok: true,
+        message: "Playing 'lofi hip hop radio', duration: live stream, volume: 80%",
+      });
+    }
+
+    if (seekTool) {
+      await call(seekTool, { seconds: 120 }, "Jumped playback forward by 120s", {
+        ok: true,
+        message: "Current time set to 120s",
+      });
+    }
+
+    if (playTool) {
+      await call(playTool, {}, "Toggled video playback", {
+        ok: true,
+        message: "Video playback toggled successfully.",
+      });
     }
 
     return steps;

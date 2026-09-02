@@ -323,6 +323,16 @@ describe("Universal Live Website Analyzer (Any Website)", () => {
     assert.ok(names.includes("schedule_meeting"));
   });
 
+  test("extracts WebMCP tools for YouTube", async () => {
+    const audit = await auditLiveUrl("https://www.youtube.com");
+    assert.equal(audit.success, true);
+    assert.ok(audit.tools.length > 0);
+    const names = audit.tools.map((t) => t.name);
+    assert.ok(names.includes("search_videos"));
+    assert.ok(names.includes("play_pause"));
+    assert.ok(names.includes("get_video_details"));
+  });
+
   test("extracts WebMCP tools for arbitrary website", async () => {
     const audit = await auditLiveUrl("https://example.com/store");
     assert.equal(audit.success, true);

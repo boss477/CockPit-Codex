@@ -17,6 +17,14 @@ describe("WebMCP Extension Bridge Unit Tests", () => {
         title: "Team Sync",
       });
       assert.equal(resMotion.allowed, true);
+
+      const resYouTube = checkExtensionPolicy("youtube", "search_videos", {
+        query: "chill lofi beats",
+      });
+      assert.equal(resYouTube.allowed, true);
+
+      const resYouTubePlay = checkExtensionPolicy("youtube", "play_pause", {});
+      assert.equal(resYouTubePlay.allowed, true);
     });
 
     test("refuses unauthorized tools not in target allowlist", () => {

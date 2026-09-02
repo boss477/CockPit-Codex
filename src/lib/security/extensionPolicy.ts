@@ -12,6 +12,7 @@ export interface ExtensionPolicyResult {
 export const ALLOWED_TOOLS_BY_TARGET: Record<string, string[]> = {
   whatsapp: ["send_message", "search_chats", "get_recent_messages", "get_page_info"],
   motion: ["create_task", "get_page_info"],
+  youtube: ["search_videos", "play_pause", "seek_to", "get_video_details", "set_volume", "get_page_info"],
 };
 
 export const INJECTION_PATTERNS: { pattern: RegExp; label: string }[] = [

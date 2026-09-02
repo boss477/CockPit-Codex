@@ -225,11 +225,13 @@ export async function validate(
     /^https?:\/\/(?!github\.com)/i.test(state.manifest.repoUrl);
   const resolvedTarget =
     extensionTarget ||
-    (state.manifest.repoLabel.toLowerCase().includes("motion")
-      ? "motion"
-      : state.manifest.repoLabel.toLowerCase().includes("whatsapp")
-        ? "whatsapp"
-        : undefined);
+    (state.manifest.repoLabel.toLowerCase().includes("youtube")
+      ? "youtube"
+      : state.manifest.repoLabel.toLowerCase().includes("motion")
+        ? "motion"
+        : state.manifest.repoLabel.toLowerCase().includes("whatsapp")
+          ? "whatsapp"
+          : undefined);
 
   // Tier 1 with no extension:
   // If not a live site or disabled, handle refusal. For live sites without extension,

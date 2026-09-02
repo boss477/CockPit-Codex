@@ -161,6 +161,58 @@ const DOMAIN_ARCHETYPES: DomainArchetype[] = [
     ],
   },
   {
+    match: /youtube\.com/i,
+    stackName: "YouTube Video Player & Search Interface",
+    tools: [
+      {
+        name: "search_videos",
+        method: "GET",
+        path: "/results",
+        description: "Search for videos, playlists, and channels on YouTube.",
+        readOnly: true,
+        params: [
+          { name: "query", type: "string", in: "query", required: true, description: "Search terms or keywords." },
+        ],
+      },
+      {
+        name: "play_pause",
+        method: "POST",
+        path: "/api/player/play-pause",
+        description: "Play or pause the currently loaded YouTube video.",
+        readOnly: false,
+        params: [],
+      },
+      {
+        name: "seek_to",
+        method: "POST",
+        path: "/api/player/seek",
+        description: "Jump to a specific timestamp in seconds in the active video.",
+        readOnly: false,
+        params: [
+          { name: "seconds", type: "number", in: "body", required: true, description: "Target playback time in seconds." },
+        ],
+      },
+      {
+        name: "get_video_details",
+        method: "GET",
+        path: "/api/player/details",
+        description: "Retrieve title, channel, duration, and playback status of current video.",
+        readOnly: true,
+        params: [],
+      },
+      {
+        name: "set_volume",
+        method: "POST",
+        path: "/api/player/volume",
+        description: "Set playback volume level from 0 to 100.",
+        readOnly: false,
+        params: [
+          { name: "level", type: "number", in: "body", required: true, description: "Volume percentage (0-100)." },
+        ],
+      },
+    ],
+  },
+  {
     match: /github\.com/i,
     stackName: "GitHub REST API",
     tools: [
