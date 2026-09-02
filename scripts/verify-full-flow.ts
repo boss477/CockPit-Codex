@@ -12,7 +12,7 @@ import {
   type WebMCPToolDefinition,
 } from "../src/lib/webmcp";
 
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = process.env.FORGE_BASE_URL ?? "http://localhost:3000";
 
 async function main() {
   console.log("==================================================");
@@ -117,6 +117,13 @@ async function main() {
     {
       name: "forge_get_findings",
       description: "Get findings",
+      inputSchema: { type: "object", properties: {} },
+      annotations: { readOnlyHint: true },
+      execute: async () => ({ ok: true }),
+    },
+    {
+      name: "forge_get_execution_plan",
+      description: "Report the execution tier and target",
       inputSchema: { type: "object", properties: {} },
       annotations: { readOnlyHint: true },
       execute: async () => ({ ok: true }),
