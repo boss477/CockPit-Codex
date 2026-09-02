@@ -1,16 +1,21 @@
 /**
  * WebMCP Universal Bridge - Main World Script
- * Injected directly into the target website window to provide document.modelContext
- * and automated DOM execution for WhatsApp Web, Motion, and generic sites.
+ * Injected natively in world: "MAIN" to bypass CSP and provide window.modelContext & document.modelContext
  */
 (function () {
-  console.log("[WebMCP Bridge] Initializing WebMCP ModelContext in page context...");
+  console.log("%c[WebMCP Universal Bridge] Initializing window.modelContext...", "color: #3fb950; font-weight: bold; font-size: 12px;");
 
-  // In-memory tool registry
+  // Avoid double initialization
+  if (window.modelContext && window.modelContext._isWebMcpBridge) {
+    console.log("[WebMCP Universal Bridge] Already initialized.");
+    return;
+  }
+
   const registeredTools = new Map();
 
   class ModelContext {
     constructor() {
+      this._isWebMcpBridge = true;
       this._tools = registeredTools;
     }
 
@@ -19,7 +24,7 @@
         throw new Error("Tool definition must include a 'name' string");
       }
       this._tools.set(toolDef.name, toolDef);
-      console.log(`[WebMCP Bridge] Registered tool: ${toolDef.name}`);
+      console.log(`%c[WebMCP Bridge] Registered tool: ${toolDef.name}`, "color: #58a6ff;");
       window.dispatchEvent(new CustomEvent("webmcp:tool-registered", { detail: { name: toolDef.name } }));
       return {
         unregister: () => {
@@ -45,48 +50,37 @@
     async executeTool(name, input = {}) {
       const tool = this._tools.get(name);
       if (!tool) {
-        throw new Error(`WebMCP tool "${name}" is not registered.`);
+        throw new Error(`WebMCP tool "${name}" is not registered. Registered tools: ${Array.from(this._tools.keys()).join(", ")}`);
       }
-      console.log(`[WebMCP Bridge] Executing tool "${name}" with input:`, input);
+      console.log(`%c[WebMCP Bridge] Executing tool "${name}" with input:`, "color: #d29922;", input);
       if (typeof tool.execute === "function") {
         return await tool.execute(input);
       }
       return { ok: true, message: `Tool "${name}" called with`, input };
     }
+
+    // Alias for executeTool
+    async callTool(name, input = {}) {
+      return await this.executeTool(name, input);
+    }
   }
 
   const instance = new ModelContext();
 
-  // Expose on both document.modelContext and navigator.modelContext
   try {
-    Object.defineProperty(document, "modelContext", {
-      value: instance,
-      writable: false,
-      configurable: true,
-    });
-  } catch (e) {
+    window.modelContext = instance;
     document.modelContext = instance;
-  }
-
-  try {
-    Object.defineProperty(navigator, "modelContext", {
-      value: instance,
-      writable: false,
-      configurable: true,
-    });
-  } catch (e) {
     navigator.modelContext = instance;
+  } catch (e) {
+    console.warn("[WebMCP Bridge] Could not set on document/navigator:", e);
   }
-
-  window.modelContext = instance;
 
   // -------------------------------------------------------------
   // WHATSAPP WEB ADAPTER
   // -------------------------------------------------------------
-  if (window.location.hostname.includes("whatsapp.com")) {
-    console.log("[WebMCP Bridge] WhatsApp Web detected. Registering chat tools...");
+  function registerWhatsAppTools() {
+    console.log("%c[WebMCP Bridge] WhatsApp Web detected! Registering chat tools...", "color: #25D366; font-weight: bold;");
 
-    // 1. send_message
     instance.registerTool({
       name: "send_message",
       description: "Send a text message in the currently active WhatsApp chat",
@@ -99,22 +93,31 @@
       },
       readOnlyHint: false,
       execute: async ({ text }) => {
+        // Look for the main message input box in WhatsApp Web
         const messageBox =
+          document.querySelector('footer div[contenteditable="true"]') ||
           document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
           document.querySelector('div[contenteditable="true"][data-tab="6"]') ||
           document.querySelector('div[contenteditable="true"]');
 
         if (!messageBox) {
-          return { ok: false, error: "No open chat conversation found. Please click a chat first." };
+          return {
+            ok: false,
+            error: "No open chat conversation found. Please click or select a chat first in WhatsApp Web.",
+          };
         }
 
+        // Focus and type text
         messageBox.focus();
         document.execCommand("insertText", false, text);
         messageBox.dispatchEvent(new Event("input", { bubbles: true }));
 
-        await new Promise((r) => setTimeout(r, 150));
+        // Wait brief moment for React state to update
+        await new Promise((r) => setTimeout(r, 200));
 
+        // Click Send button or press Enter
         const sendBtn =
+          document.querySelector('footer button[aria-label="Send"]') ||
           document.querySelector('button[aria-label="Send"]') ||
           document.querySelector('span[data-icon="send"]')?.closest("button");
 
@@ -131,12 +134,11 @@
               bubbles: true,
             })
           );
-          return { ok: true, message: `Message sent via Enter: "${text}"` };
+          return { ok: true, message: `Message sent via Enter key: "${text}"` };
         }
       },
     });
 
-    // 2. search_chats
     instance.registerTool({
       name: "search_chats",
       description: "Search conversations by contact name or keyword in WhatsApp Web",
@@ -160,11 +162,10 @@
         searchBox.focus();
         document.execCommand("insertText", false, query);
         searchBox.dispatchEvent(new Event("input", { bubbles: true }));
-        return { ok: true, message: `Searched for "${query}"` };
+        return { ok: true, message: `Searched WhatsApp chats for "${query}"` };
       },
     });
 
-    // 3. get_recent_messages
     instance.registerTool({
       name: "get_recent_messages",
       description: "Read recent visible message text bubbles from the active conversation",
@@ -186,9 +187,7 @@
   // -------------------------------------------------------------
   // MOTION AI ADAPTER
   // -------------------------------------------------------------
-  if (window.location.hostname.includes("motion.so") || window.location.hostname.includes("usemotion.com")) {
-    console.log("[WebMCP Bridge] Motion detected. Registering task tools...");
-
+  function registerMotionTools() {
     instance.registerTool({
       name: "create_task",
       description: "Trigger create task dialog in Motion",
@@ -213,9 +212,7 @@
     });
   }
 
-  // -------------------------------------------------------------
-  // GENERIC WEB TOOLS (FOR ANY SITE)
-  // -------------------------------------------------------------
+  // Register default generic tool
   instance.registerTool({
     name: "get_page_info",
     description: "Get current page title, URL, and interactive elements",
@@ -231,5 +228,13 @@
     },
   });
 
-  console.log(`[WebMCP Bridge] Ready with ${instance.listTools().length} tools available.`);
+  // Check host
+  const host = window.location.hostname;
+  if (host.includes("whatsapp.com")) {
+    registerWhatsAppTools();
+  } else if (host.includes("motion.so") || host.includes("usemotion.com")) {
+    registerMotionTools();
+  }
+
+  console.log(`%c[WebMCP Universal Bridge] Successfully loaded! ${instance.listTools().length} tools available.`, "color: #3fb950; font-weight: bold;");
 })();
