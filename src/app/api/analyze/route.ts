@@ -3,6 +3,9 @@ import { resolveInput } from "@/lib/inputRouter";
 import { parseSpecContent } from "@/lib/adapters/openapiSpec";
 import { auditLiveUrl } from "@/lib/liveAuditor";
 import { extractUniversalRepoTools } from "@/lib/universalRepoAnalyzer";
+import { resolveExecutionPlan } from "@/lib/executionPlan";
+import { DEMO_SPEC, DEMO_SPEC_LABEL, DEMO_SPEC_URL } from "@/lib/fixtures/demoSpec";
+import { parseOpenApiSpec } from "@/lib/adapters/openapiSpec";
 import {
   DEMO_REPO_FILES,
   DEMO_REPO_LABEL,
@@ -110,25 +113,6 @@ async function fetchRepoFiles(owner: string, repo: string): Promise<RepoFile[]> 
   );
 }
 
-function isLocalOrPrivateHost(urlStr: string | null): boolean {
-  if (!urlStr) return false;
-  if (urlStr.startsWith("/")) return true;
-  try {
-    const u = new URL(urlStr.startsWith("http") ? urlStr : `http://${urlStr}`);
-    const host = u.hostname.toLowerCase();
-    return (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "0.0.0.0" ||
-      host === "::1" ||
-      host.endsWith(".localhost") ||
-      host.endsWith(".local")
-    );
-  } catch {
-    return false;
-  }
-}
-
 export async function POST(request: Request) {
   const {
     repoUrl,
@@ -145,11 +129,52 @@ export async function POST(request: Request) {
   // The bundled storefront is the demo path and needs no network access.
   if (target === "" || target === DEMO_REPO_URL || /demo-storefront/i.test(target)) {
     const manifest = buildManifest(DEMO_REPO_FILES, DEMO_REPO_URL, DEMO_REPO_LABEL);
+    const { plan } = resolveExecutionPlan({
+      inputKind: "github",
+      bundledDemo: true,
+      sources: manifest.sources ?? [],
+      label: DEMO_REPO_LABEL,
+      executionBaseUrl,
+    });
     return Response.json({
-      manifest: { ...manifest, inputKind: "github" },
+      manifest: { ...manifest, inputKind: "github", execution: plan },
       source: "bundled",
       inputKind: "github",
       matchedAdapters: ["Next.js App Router (Bundled Demo)"],
+      execution: plan,
+    });
+  }
+
+  // The bundled contract. Exercises the OpenAPI path with no network access,
+  // and is the target the mock tier is demonstrated against.
+  if (target === DEMO_SPEC_URL || /\/api\/demo-spec$/.test(target)) {
+    const sources = parseOpenApiSpec(
+      DEMO_SPEC as unknown as Record<string, unknown>,
+      "demo-spec.json",
+    );
+    const { plan, mockSpec } = resolveExecutionPlan({
+      inputKind: "openapi",
+      sources,
+      label: DEMO_SPEC_LABEL,
+      executionBaseUrl,
+    });
+    const manifest = buildManifestFromSources(
+      sources.map((source) => ({ ...source, baseUrl: plan.baseUrl, executable: plan.executable })),
+      DEMO_SPEC_URL,
+      DEMO_SPEC_LABEL,
+      ["OpenAPI / Swagger Ingestion (Bundled Contract)"],
+    );
+    return Response.json({
+      manifest: {
+        ...manifest,
+        inputKind: "openapi",
+        execution: plan,
+        mockSpec: mockSpec ?? undefined,
+      },
+      source: "bundled-spec",
+      inputKind: "openapi",
+      matchedAdapters: ["OpenAPI / Swagger Ingestion (Bundled Contract)"],
+      execution: plan,
     });
   }
 
@@ -196,11 +221,24 @@ export async function POST(request: Request) {
         );
       }
 
+      const { plan, mockSpec } = resolveExecutionPlan({
+        inputKind: "github",
+        sources: manifest.sources ?? [],
+        label: `${parsed.owner}/${parsed.repo}`,
+        executionBaseUrl,
+      });
+
       return Response.json({
-        manifest: { ...manifest, inputKind: "github" },
+        manifest: {
+          ...manifest,
+          inputKind: "github",
+          execution: plan,
+          mockSpec: mockSpec ?? undefined,
+        },
         source: "github",
         inputKind: "github",
         matchedAdapters: manifest.matchedAdapters ?? [],
+        execution: plan,
       });
     } catch (error) {
       return Response.json(
@@ -240,30 +278,44 @@ export async function POST(request: Request) {
         );
       }
 
-      const effectiveBaseUrl = executionBaseUrl !== undefined ? executionBaseUrl : rawSources[0]?.baseUrl ?? null;
-      const isExec = isLocalOrPrivateHost(effectiveBaseUrl);
+      const label = new URL(target).hostname + " (OpenAPI)";
 
-      const sources = rawSources.map((s) => ({
-        ...s,
-        baseUrl: effectiveBaseUrl,
-        executable: isExec,
+      // A spec always yields an executable target: either a mock server the
+      // operator is running, or the mock this app generates from the contract.
+      const { plan, mockSpec } = resolveExecutionPlan({
+        inputKind: "openapi",
+        sources: rawSources,
+        label,
+        executionBaseUrl,
+      });
+
+      const sources = rawSources.map((source) => ({
+        ...source,
+        baseUrl: plan.baseUrl,
+        executable: plan.executable,
         origin: "openapi" as const,
       }));
 
       const manifest = buildManifestFromSources(
         sources,
         target,
-        new URL(target).hostname + " (OpenAPI)",
+        label,
         ["OpenAPI / Swagger Ingestion"],
       );
 
       return Response.json({
-        manifest: { ...manifest, inputKind: "openapi" },
+        manifest: {
+          ...manifest,
+          inputKind: "openapi",
+          execution: plan,
+          mockSpec: mockSpec ?? undefined,
+        },
         source: "openapi",
         inputKind: "openapi",
         matchedAdapters: ["OpenAPI / Swagger Ingestion"],
-        executionBaseUrl: effectiveBaseUrl,
-        executable: isExec,
+        executionBaseUrl: plan.baseUrl,
+        executable: plan.executable,
+        execution: plan,
       });
     } catch (error) {
       return Response.json(
@@ -279,30 +331,46 @@ export async function POST(request: Request) {
   if (kind === "live") {
     try {
       const audit = await auditLiveUrl(target);
+      const label =
+        audit.rawHtmlTitle ||
+        new URL(target.startsWith("http") ? target : `https://${target}`).hostname;
 
-      const effectiveBaseUrl = executionBaseUrl || null;
-      const isExec = isLocalOrPrivateHost(effectiveBaseUrl);
+      // A live site is only executable through a contract it published, and
+      // even then the calls go to a generated mock — never to the site itself.
+      const { plan, mockSpec } = resolveExecutionPlan({
+        inputKind: "live",
+        sources: audit.tools,
+        label,
+        executionBaseUrl,
+        liveContractFound: audit.kind === "openapi",
+      });
 
       const sources = audit.tools.map((t) => ({
         ...t,
-        baseUrl: effectiveBaseUrl,
-        executable: isExec,
+        baseUrl: plan.baseUrl,
+        executable: plan.executable,
       }));
 
       const manifest = buildManifestFromSources(
         sources,
         target,
-        audit.rawHtmlTitle || new URL(target.startsWith("http") ? target : `https://${target}`).hostname,
+        label,
         [audit.stackName || "Live Web Capability Analysis"],
       );
 
       return Response.json({
-        manifest: { ...manifest, inputKind: "live" },
+        manifest: {
+          ...manifest,
+          inputKind: "live",
+          execution: plan,
+          mockSpec: mockSpec ?? undefined,
+        },
         source: "live",
         inputKind: "live",
         matchedAdapters: [audit.stackName || "Live Web Capability Analysis"],
         audit,
-        executable: isExec,
+        executable: plan.executable,
+        execution: plan,
       });
     } catch (error) {
       return Response.json(
