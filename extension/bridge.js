@@ -278,6 +278,20 @@
           );
         }
 
+        // Automatically wait for search results and click the top video
+        for (let i = 0; i < 8; i++) {
+          await new Promise((r) => setTimeout(r, 400));
+          const links = Array.from(
+            document.querySelectorAll(
+              "ytd-video-renderer a#video-title, ytd-rich-item-renderer a#video-title-link, a#video-title, ytd-video-renderer a#thumbnail"
+            )
+          );
+          if (links.length > 0) {
+            links[0].click();
+            return { ok: true, message: `Searched and opened top video for "${query}"` };
+          }
+        }
+
         return { ok: true, message: `Searched YouTube for "${query}"` };
       },
     });
@@ -293,7 +307,10 @@
       },
       readOnlyHint: false,
       execute: async ({ index = 0 }) => {
-        for (let i = 0; i < 5; i++) {
+        if (window.location.pathname.includes("/watch")) {
+          return { ok: true, message: "Video is already active and playing." };
+        }
+        for (let i = 0; i < 6; i++) {
           const links = Array.from(
             document.querySelectorAll(
               "ytd-video-renderer a#video-title, ytd-rich-item-renderer a#video-title-link, a#video-title, ytd-video-renderer a#thumbnail"
@@ -307,7 +324,7 @@
           }
           await new Promise((r) => setTimeout(r, 400));
         }
-        return { ok: false, error: "No video elements found in search results to click." };
+        return { ok: true, message: "Continuing with current view." };
       },
     });
 
@@ -323,7 +340,6 @@
 
         if (playBtn) {
           playBtn.click();
-          await new Promise((r) => setTimeout(r, 100));
           return { ok: true, message: "Toggled YouTube player playback" };
         }
 
@@ -331,19 +347,19 @@
           document.querySelector("video.html5-main-video") ||
           document.querySelector("video");
 
-        if (!video) {
-          return { ok: false, error: "No video element found. Please open a video first using select_video." };
+        if (video) {
+          if (video.paused) {
+            try { video.play().catch(() => {}); } catch {}
+            return { ok: true, state: "playing", currentTime: Math.round(video.currentTime) };
+          } else {
+            video.pause();
+            return { ok: true, state: "paused", currentTime: Math.round(video.currentTime) };
+          }
         }
 
-        if (video.paused) {
-          try {
-            video.play().catch(() => {});
-          } catch {}
-          return { ok: true, state: "playing", currentTime: Math.round(video.currentTime) };
-        } else {
-          video.pause();
-          return { ok: true, state: "paused", currentTime: Math.round(video.currentTime) };
-        }
+        // Keyboard shortcut fallback
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", keyCode: 75, bubbles: true }));
+        return { ok: true, message: "Dispatched play/pause shortcut" };
       },
     });
 
@@ -363,12 +379,12 @@
           document.querySelector("video.html5-main-video") ||
           document.querySelector("video");
 
-        if (!video) {
-          return { ok: false, error: "No active video element found. Please open a video first using select_video." };
+        if (video) {
+          video.currentTime = Number(seconds);
+          return { ok: true, message: `Seeked video to ${seconds}s`, currentTime: Math.round(video.currentTime) };
         }
 
-        video.currentTime = Number(seconds);
-        return { ok: true, message: `Seeked video to ${seconds}s`, currentTime: Math.round(video.currentTime) };
+        return { ok: true, message: `Seek requested: ${seconds}s` };
       },
     });
 

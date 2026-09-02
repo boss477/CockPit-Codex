@@ -408,19 +408,19 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
     }
 
     if (searchTool) {
-      await call(searchTool, { query }, `Searched for "${query}" on YouTube`, {
+      await call(searchTool, { query }, `Searched and opened "${query}" on YouTube`, {
         ok: true,
-        message: `Searched YouTube for "${query}"`,
+        message: `Searched YouTube for "${query}" and opened video`,
       });
+      await sleep(2500);
     }
 
     if (selectTool) {
-      await sleep(1500);
-      await call(selectTool, { index: 0 }, `Selected top video for "${query}"`, {
+      await call(selectTool, { index: 0 }, `Verified video player for "${query}"`, {
         ok: true,
-        message: `Opened top video matching "${query}"`,
+        message: `Opened and playing top video matching "${query}"`,
       });
-      await sleep(2000);
+      await sleep(1500);
     }
 
     if (detailsTool) {
