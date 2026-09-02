@@ -1,6 +1,15 @@
 "use client";
 
-import type { AgentStep, ForgeState, InputKind, LogEntry, ToolManifest } from "./types";
+import type {
+  AgentStep,
+  ExecutionPlan,
+  ForgeState,
+  InputKind,
+  LogEntry,
+  MockSpec,
+  ToolManifest,
+} from "./types";
+import { planBadge } from "./executionPlan";
 import { PolicyGate } from "./security/monitor";
 import { mergeRuntimeFindings, scanManifest } from "./security/scan";
 import { getTaskForManifest, runAgent, type AgentMode } from "./agent/runner";
@@ -14,8 +23,9 @@ const initialState: ForgeState = {
   log: [],
   error: null,
   inputKind: "github",
-  executionBaseUrl: "http://localhost:3000",
+  executionBaseUrl: "",
   resultInfo: null,
+  execution: null,
 };
 
 let state: ForgeState = initialState;
@@ -78,10 +88,36 @@ export function loadPersistedManifest(): ToolManifest | null {
 
 export function isManifestExecutable(manifest: ToolManifest | null): boolean {
   if (!manifest || manifest.tools.length === 0) return false;
+  if (manifest.execution) return manifest.execution.executable;
   if (manifest.sources && manifest.sources.length > 0) {
     return manifest.sources.some((s) => s.executable);
   }
   return manifest.repoUrl.includes("demo-storefront") || manifest.repoUrl === "" || manifest.inputKind === "github";
+}
+
+/**
+ * Brings the generated mock target up before the agent runs against it.
+ * Returns false only when the mock could not be registered, in which case the
+ * mock route still answers from the request itself and says so.
+ */
+async function ensureMockTarget(mockSpec: MockSpec | undefined | null): Promise<boolean> {
+  if (!mockSpec) return true;
+  try {
+    const response = await fetch("/api/mock/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ spec: mockSpec }),
+    });
+    if (!response.ok) return false;
+    const payload = await response.json();
+    log(
+      "system",
+      `Mock target up at ${payload.baseUrl} serving ${payload.operations} operation(s) from the contract`,
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -101,6 +137,7 @@ export async function analyze(
     agentRun: null,
     observed: [],
     resultInfo: null,
+    execution: null,
   });
   log(actor, `Analyzing ${repoUrl || "the bundled demo storefront"} (${kindToUse})`);
 
@@ -131,14 +168,17 @@ export async function analyze(
 
   const manifest = payload.manifest as ToolManifest;
   const matchedAdapters = payload.matchedAdapters ?? manifest.matchedAdapters ?? [];
+  const execution = (payload.execution ?? manifest.execution ?? null) as ExecutionPlan | null;
 
   set({
     stage: "generating",
     manifest,
+    execution,
     inputKind: payload.inputKind ?? kindToUse,
     resultInfo: {
       matchedAdapters,
       detectedStack: payload.inputKind ?? kindToUse,
+      execution: execution ?? undefined,
     },
   });
   persistManifest(manifest);
@@ -146,6 +186,10 @@ export async function analyze(
     "system",
     `Discovered ${manifest.capabilities.length} capabilities and generated ${manifest.tools.length} tools via [${matchedAdapters.join(", ")}]`,
   );
+  if (execution) {
+    // The tier is the honest part of the demo: say which target, and why.
+    log("system", `Execution tier: ${planBadge(execution)} — ${execution.reason}`);
+  }
   set({ stage: "generating" });
   return manifest;
 }
@@ -170,21 +214,43 @@ export async function validate(mode: AgentMode, actor: LogEntry["actor"] = "huma
   if (!state.manifest) return null;
   if (state.verdicts.length === 0) scan(actor);
 
+  const plan = state.execution ?? state.manifest.execution ?? null;
+
+  // Tier 1. The scan already ran and is the deliverable here; refusing to
+  // execute against a third-party host is the correct outcome, not a failure.
+  if (plan && !plan.executable) {
+    log(
+      "system",
+      `VALIDATE disabled (${planBadge(plan)}): ${plan.reason}`,
+    );
+    set({ stage: "done" });
+    return null;
+  }
+
   const task = getTaskForManifest(state.manifest);
-  const gate = new PolicyGate(window.location.origin, true);
+  const gate = new PolicyGate(window.location.origin, true, plan?.allowedOrigins ?? []);
   const steps: AgentStep[] = [];
+
+  if (plan?.mock?.provider === "builtin") {
+    await ensureMockTarget(state.manifest.mockSpec);
+  }
 
   set({
     stage: "validating",
     agentRun: { task, steps: [], status: "running", startedAt: new Date().toISOString() },
   });
-  log(actor, `Running the ${mode} agent in simulation against ${state.manifest.repoLabel}`);
+  log(
+    actor,
+    `Running the ${mode} agent against ${planBadge(plan)} ` +
+      `(${plan?.baseUrl || "this origin"}) for ${state.manifest.repoLabel}`,
+  );
 
   await runAgent({
     manifest: state.manifest,
     verdicts: state.verdicts,
     gate,
     mode,
+    plan: plan ?? undefined,
     onStep: (step) => {
       steps.push(step);
       set({
@@ -231,4 +297,9 @@ export function reset() {
   for (const listener of listeners) listener();
 }
 
-export { getTaskForManifest };
+/** The tier the current manifest qualifies for, if anything has been analyzed. */
+export function getExecutionPlan(): ExecutionPlan | null {
+  return state.execution ?? state.manifest?.execution ?? null;
+}
+
+export { getTaskForManifest, planBadge };
