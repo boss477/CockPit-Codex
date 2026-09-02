@@ -114,6 +114,7 @@ export function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [extensionDetected, setExtensionDetected] = useState<boolean | null>(null);
+  const [customPrompt, setCustomPrompt] = useState("");
 
   useEffect(() => {
     setWebmcp(isWebMCPAvailable());
@@ -316,7 +317,7 @@ export function Dashboard() {
               className="btn"
               disabled={busy || validateDisabled}
               title={validateReason}
-              onClick={() => run(() => store.validate("unguarded", "human", canValidateLive))}
+              onClick={() => run(() => store.validate("unguarded", "human", canValidateLive, undefined, customPrompt))}
             >
               Validate: unguarded agent
             </button>
@@ -324,12 +325,40 @@ export function Dashboard() {
               className="btn"
               disabled={busy || validateDisabled}
               title={validateReason}
-              onClick={() => run(() => store.validate("guarded", "human", canValidateLive))}
+              onClick={() => run(() => store.validate("guarded", "human", canValidateLive, undefined, customPrompt))}
             >
               Validate: guarded agent
             </button>
             <button className="btn" disabled={!hasManifest} onClick={download}>
               Export integration
+            </button>
+          </div>
+
+          {/* Custom Agent Prompt Box */}
+          <div className="pt-2 border-t flex gap-2 flex-wrap items-center" style={{ borderColor: "var(--line)" }}>
+            <span className="text-xs font-semibold subtle uppercase shrink-0">
+              🎯 Custom Agent Goal:
+            </span>
+            <input
+              type="text"
+              className="mono text-xs p-1.5 rounded border flex-1 min-w-[280px]"
+              style={{ background: "var(--bg)", borderColor: "var(--line)" }}
+              placeholder='e.g. search endgame trailer · send "hello" on whatsapp · search mechanical keyboard on amazon'
+              value={customPrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !validateDisabled && !busy) {
+                  run(() => store.validate("guarded", "human", canValidateLive, undefined, customPrompt));
+                }
+              }}
+            />
+            <button
+              className="btn btn-primary text-xs"
+              disabled={busy || validateDisabled}
+              title={validateReason || "Dispatch custom goal directly to target"}
+              onClick={() => run(() => store.validate("guarded", "human", canValidateLive, undefined, customPrompt))}
+            >
+              ⚡ Run Custom Goal
             </button>
           </div>
 

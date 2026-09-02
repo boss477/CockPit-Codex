@@ -214,7 +214,8 @@ export async function validate(
   mode: AgentMode,
   actor: LogEntry["actor"] = "human",
   useExtension = false,
-  extensionTarget?: "whatsapp" | "motion"
+  extensionTarget?: "whatsapp" | "motion" | "youtube" | "amazon" | string,
+  customPrompt?: string
 ) {
   if (!state.manifest) return null;
   if (state.verdicts.length === 0) scan(actor);
@@ -250,7 +251,9 @@ export async function validate(
     log("system", "Extension not detected — running in simulated mode");
   }
 
-  const task = getTaskForManifest(state.manifest);
+  const task = customPrompt && customPrompt.trim()
+    ? customPrompt.trim()
+    : getTaskForManifest(state.manifest);
   const gate = new PolicyGate(window.location.origin, true, plan?.allowedOrigins ?? []);
   const steps: AgentStep[] = [];
 
@@ -277,6 +280,7 @@ export async function validate(
     plan: plan ?? undefined,
     useExtensionBridge: useExtension,
     extensionTarget: resolvedTarget,
+    customPrompt,
     onLog: (logActor, message) => {
       log(logActor, message);
     },

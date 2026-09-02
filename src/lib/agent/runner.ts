@@ -18,6 +18,7 @@ export interface AgentOptions {
   plan?: ExecutionPlan;
   useExtensionBridge?: boolean;
   extensionTarget?: "whatsapp" | "motion" | string;
+  customPrompt?: string;
   onStep: (step: AgentStep) => void;
   onLog?: (actor: "agent" | "system" | "human", message: string) => void;
 }
@@ -156,6 +157,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
     plan,
     useExtensionBridge,
     extensionTarget,
+    customPrompt,
     onStep,
     onLog,
   } = options;
@@ -389,18 +391,27 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
     const seekTool = byName(manifest, "seek_to") || manifest.tools[3];
     const playTool = byName(manifest, "play_pause") || manifest.tools[2];
 
+    let query = "lofi hip hop radio";
+    if (customPrompt && customPrompt.trim()) {
+      const clean = customPrompt
+        .replace(/^(?:go\s+|please\s+)?(?:search(?:\s+for)?|play|find|watch)\s+/i, "")
+        .replace(/\s+(?:in|on)\s+(?:yt|youtube|forge).*$/i, "")
+        .trim();
+      query = clean || customPrompt.trim();
+    }
+
     if (searchTool) {
-      await call(searchTool, { query: "lofi hip hop radio" }, "Searched for lofi hip hop videos", {
+      await call(searchTool, { query }, `Searched for "${query}" on YouTube`, {
         ok: true,
-        message: "Found top streaming video: 'lofi hip hop radio - beats to relax/study to'",
+        message: `Searched YouTube for "${query}"`,
       });
     }
 
     if (selectTool) {
       await sleep(1500);
-      await call(selectTool, { index: 0 }, "Selected and opened top video from search results", {
+      await call(selectTool, { index: 0 }, `Selected top video for "${query}"`, {
         ok: true,
-        message: "Opened video 'lofi hip hop radio - beats to relax/study to'",
+        message: `Opened top video matching "${query}"`,
       });
       await sleep(2000);
     }
@@ -408,7 +419,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
     if (detailsTool) {
       await call(detailsTool, {}, "Inspected current video player metadata", {
         ok: true,
-        message: "Playing 'lofi hip hop radio', duration: live stream, volume: 80%",
+        message: `Playing "${query}", video details retrieved`,
       });
     }
 
@@ -438,10 +449,19 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
     const addTool = byName(manifest, "add_to_cart") || manifest.tools[2];
     const countTool = byName(manifest, "get_cart_count") || manifest.tools[3];
 
+    let query = "wireless headphones";
+    if (customPrompt && customPrompt.trim()) {
+      const clean = customPrompt
+        .replace(/^(?:go\s+|please\s+)?(?:search(?:\s+for)?|buy|find)\s+/i, "")
+        .replace(/\s+(?:in|on)\s+(?:amazon|forge).*$/i, "")
+        .trim();
+      query = clean || customPrompt.trim();
+    }
+
     if (searchTool) {
-      await call(searchTool, { query: "wireless headphones" }, "Searched Amazon products", {
+      await call(searchTool, { query }, `Searched Amazon for "${query}"`, {
         ok: true,
-        message: "Found top product: 'Sony WH-1000XM5 Wireless Headphones' - $349.99 (4.6 stars)",
+        message: `Found top products matching "${query}"`,
       });
     }
 
