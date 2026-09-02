@@ -88,37 +88,47 @@
         type: "object",
         properties: {
           text: { type: "string", description: "The message text to send" },
+          recipient: { type: "string", description: "Target contact or phone number" },
         },
         required: ["text"],
       },
       readOnlyHint: false,
-      execute: async ({ text }) => {
+      execute: async (args = {}) => {
+        const text = args.text || args.message || "";
+        if (!text) {
+          return { ok: false, error: "No message text provided to send." };
+        }
+
         // Look for the main message input box in WhatsApp Web
         const messageBox =
           document.querySelector('footer div[contenteditable="true"]') ||
           document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
           document.querySelector('div[contenteditable="true"][data-tab="6"]') ||
-          document.querySelector('div[contenteditable="true"]');
+          document.querySelector('div[contenteditable="true"][aria-placeholder*="Type"]') ||
+          document.querySelector('footer div[role="textbox"]') ||
+          document.querySelector('div[role="textbox"][contenteditable="true"]');
 
         if (!messageBox) {
           return {
             ok: false,
-            error: "No open chat conversation found. Please click or select a chat first in WhatsApp Web.",
+            error: "No open chat conversation found. Please ensure a chat is selected in WhatsApp Web.",
           };
         }
 
         // Focus and type text
         messageBox.focus();
+        document.execCommand("selectAll", false, null);
         document.execCommand("insertText", false, text);
         messageBox.dispatchEvent(new Event("input", { bubbles: true }));
 
-        // Wait brief moment for React state to update
-        await new Promise((r) => setTimeout(r, 200));
+        // Wait brief moment for React state to register
+        await new Promise((r) => setTimeout(r, 250));
 
         // Click Send button or press Enter
         const sendBtn =
           document.querySelector('footer button[aria-label="Send"]') ||
           document.querySelector('button[aria-label="Send"]') ||
+          document.querySelector('button[data-testid="compose-btn-send"]') ||
           document.querySelector('span[data-icon="send"]')?.closest("button");
 
         if (sendBtn) {
@@ -153,16 +163,42 @@
       execute: async ({ query }) => {
         const searchBox =
           document.querySelector('div[contenteditable="true"][data-tab="3"]') ||
-          document.querySelector('input[type="text"][placeholder*="Search"]');
+          document.querySelector('div[contenteditable="true"][aria-label*="Search"]') ||
+          document.querySelector('div[contenteditable="true"][title*="Search"]') ||
+          document.querySelector('input[type="text"][placeholder*="Search"]') ||
+          document.querySelector('div[role="textbox"][aria-label*="Search"]');
 
         if (!searchBox) {
-          return { ok: false, error: "Search input box not found." };
+          return { ok: false, error: "WhatsApp search input box not found." };
         }
 
         searchBox.focus();
+        document.execCommand("selectAll", false, null);
         document.execCommand("insertText", false, query);
         searchBox.dispatchEvent(new Event("input", { bubbles: true }));
-        return { ok: true, message: `Searched WhatsApp chats for "${query}"` };
+
+        // Wait for search results to appear and hit Enter
+        await new Promise((r) => setTimeout(r, 600));
+        searchBox.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            code: "Enter",
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+          })
+        );
+
+        // Fallback: click top listitem if present
+        await new Promise((r) => setTimeout(r, 400));
+        const firstResult =
+          document.querySelector('div[role="listitem"]') ||
+          document.querySelector('div[data-testid="cell-frame-container"]');
+        if (firstResult) {
+          firstResult.click();
+        }
+
+        return { ok: true, message: `Searched and selected chat for "${query}"` };
       },
     });
 
