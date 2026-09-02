@@ -25,50 +25,104 @@ export interface AgentOptions {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export interface WhatsAppPromptResolution {
-  recipient: string;
-  text: string;
-}
+export type WhatsAppParsedIntent =
+  | { intent: "read"; contact: string }
+  | { intent: "send"; recipient: string; text: string }
+  | { error: string };
 
-export function parseWhatsAppPrompt(prompt: string): WhatsAppPromptResolution | { error: string } {
+export function parseWhatsAppPrompt(prompt: string): WhatsAppParsedIntent {
   const trimmed = prompt.trim();
 
-  // Pattern 1: message <name> "<text>" or message "<name>" "<text>" or send message to <name> "<text>"
-  // e.g. message pablooo escobar "hi"
-  // e.g. message "Pablo Escobar" "hi there"
+  // -------------------------------------------------------------
+  // 1. READ / INSPECT INTENTS
+  // e.g. "what was the last messgage in pablooo escobar chat"
+  // e.g. "last message in pablo chat"
+  // e.g. "read messages from pablo"
+  // e.g. "get recent messages from pablo"
+  // -------------------------------------------------------------
+  const isRead =
+    /(?:last|recent|latest|unread|read|check|what\s+was|show|get|view|see)\s+(?:mess[a-z]*|chat|conversation|inbox)/i.test(trimmed) ||
+    /^what\s+was\s+the\s+last/i.test(trimmed) ||
+    /^(?:read|check|show)\s+/i.test(trimmed);
+
+  if (isRead) {
+    const contactMatch = trimmed.match(
+      /(?:in|from|for|with)\s+(?:"([^"]+)"|([A-Za-z0-9_\+\s]+?))\s*(?:chat|conversation|messages?|$)/i
+    );
+    let contact = "";
+    if (contactMatch) {
+      contact = (contactMatch[1] || contactMatch[2] || "").trim();
+    } else {
+      contact = trimmed
+        .replace(/^(?:what\s+was\s+the\s+)?(?:last|recent|latest|read|check|show|get|view)?\s*(?:mess[a-z]*|chat|conversation)?\s*(?:in|from|for|with)?\s*/i, "")
+        .replace(/\s*(?:chat|conversation|messages?)$/i, "")
+        .trim();
+    }
+
+    if (contact) {
+      return { intent: "read", contact };
+    }
+  }
+
+  // -------------------------------------------------------------
+  // 2. SEND MESSAGE INTENTS
+  // -------------------------------------------------------------
+
+  // Pattern 2A: message <name> "<text>" or message "<name>" "<text>"
   const quotedMessageMatch = trimmed.match(
     /^(?:message|send(?:\s+a)?(?:\s+message)?(?:\s+to)?|text)\s+(?:"([^"]+)"|([A-Za-z0-9_\+\s]+?))\s*(?::|says?|saying)?\s+["“']([^"”']+)["”']$/i
   );
   if (quotedMessageMatch) {
     const recipient = (quotedMessageMatch[1] || quotedMessageMatch[2] || "").trim();
     const text = (quotedMessageMatch[3] || "").trim();
-    if (recipient && text) return { recipient, text };
+    if (recipient && text) return { intent: "send", recipient, text };
   }
 
-  // Pattern 2: send "<text>" to <name> or send "<text>" to "<name>"
-  // e.g. send "hi" to pablooo escobar
-  // e.g. send "hello world" to "Pablo Escobar"
+  // Pattern 2B: send "<text>" to <name> or send "<text>" to "<name>"
   const sendToMatch = trimmed.match(
     /^(?:send(?:\s+a)?(?:\s+message)?|text)\s+["“']([^"”']+)["”']\s+to\s+(?:"([^"]+)"|([A-Za-z0-9_\+\s]+))$/i
   );
   if (sendToMatch) {
     const text = (sendToMatch[1] || "").trim();
     const recipient = (sendToMatch[2] || sendToMatch[3] || "").trim();
-    if (recipient && text) return { recipient, text };
+    if (recipient && text) return { intent: "send", recipient, text };
   }
 
-  // Pattern 3: to: <name>, message: "<text>" or to: "<name>", text: "<text>"
+  // Pattern 2C: to: <name>, message: "<text>" or to: <name>, text: <text>
   const structuredMatch = trimmed.match(
     /to:\s*["']?([^,"'\n]+)["']?,\s*(?:message|text):\s*["“']?([^"”'\n]+)["“']?/i
   );
   if (structuredMatch) {
     const recipient = structuredMatch[1].trim();
     const text = structuredMatch[2].trim();
-    if (recipient && text) return { recipient, text };
+    if (recipient && text) return { intent: "send", recipient, text };
+  }
+
+  // Pattern 2D: unquoted send: send <text> to <recipient>
+  // e.g. send hi to pablooo escobar
+  // e.g. send meet me at the office to Sarah
+  const unquotedSendToMatch = trimmed.match(
+    /^(?:send(?:\s+a)?(?:\s+message)?)\s+(.+?)\s+to\s+([A-Za-z0-9_\+\s]+)$/i
+  );
+  if (unquotedSendToMatch) {
+    const text = unquotedSendToMatch[1].trim();
+    const recipient = unquotedSendToMatch[2].trim();
+    if (text && recipient) return { intent: "send", recipient, text };
+  }
+
+  // Pattern 2E: unquoted message: message <recipient> <single-word text>
+  // e.g. message pablooo escobar hi
+  const unquotedMessageMatch = trimmed.match(
+    /^(?:message|text)\s+([A-Za-z0-9_\+\s]+?)\s+([a-zA-Z0-9_!?,.]+)$/i
+  );
+  if (unquotedMessageMatch) {
+    const recipient = unquotedMessageMatch[1].trim();
+    const text = unquotedMessageMatch[2].trim();
+    if (recipient && text) return { intent: "send", recipient, text };
   }
 
   return {
-    error: `Could not unambiguously resolve recipient and message text. Please use quoted text to separate recipient and body, e.g.: message "Pablo Escobar" "hi" or send "hi" to Pablo Escobar.`,
+    error: `Could not determine whether to read chat or send message. For reading, try: "what was the last message in <contact> chat". For sending, try: message "<contact>" "<text>" or send "<text>" to <contact>.`,
   };
 }
 
@@ -312,8 +366,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
     const searchTool = byName(manifest, "search_chats");
     const sendTool = byName(manifest, "send_message") || manifest.tools[0];
 
-    // If customPrompt is provided, strictly resolve recipient and message text.
-    // NEVER fall back to a hardcoded contact or number.
+    // If customPrompt is provided, handle either READ or SEND intents safely.
     if (customPrompt && customPrompt.trim()) {
       const parsed = parseWhatsAppPrompt(customPrompt);
       if ("error" in parsed) {
@@ -321,12 +374,52 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
           tool: (sendTool || searchTool || manifest.tools[0]).name,
           input: { rawPrompt: customPrompt },
           status: "error",
-          summary: "Refused send_message: Ambiguous recipient/body",
+          summary: "Refused request: Unclear WhatsApp command",
           detail: parsed.error,
         });
         return steps;
       }
 
+      // ---------------------------------------------------------
+      // INTENT A: Read / Inspect Recent Messages in a Chat
+      // e.g. "what was the last messgage in pablooo escobar chat"
+      // ---------------------------------------------------------
+      if (parsed.intent === "read") {
+        const contact = parsed.contact;
+
+        // Step 1: Search conversation by contact name to open their chat thread
+        if (searchTool) {
+          await call(
+            searchTool,
+            { query: contact },
+            `Searching and opening chat for "${contact}"`,
+            { ok: true, message: `Opened conversation thread with "${contact}"` }
+          );
+          await sleep(1500);
+        }
+
+        // Step 2: Retrieve recent visible messages from the active thread
+        const recentTool =
+          byName(manifest, "get_recent_messages") ||
+          byName(manifest, "get_chat_history") ||
+          manifest.tools[1];
+
+        if (recentTool) {
+          await call(
+            recentTool,
+            { limit: 5 },
+            `Inspected recent messages in "${contact}" chat`,
+            { ok: true, message: `Read recent messages from "${contact}". Latest message retrieved.` }
+          );
+        }
+
+        return steps;
+      }
+
+      // ---------------------------------------------------------
+      // INTENT B: Send a Message to a Contact
+      // e.g. message pablooo escobar "hi"
+      // ---------------------------------------------------------
       const { recipient, text } = parsed;
 
       // Step 1: Search conversation by resolved recipient name to open their chat thread

@@ -40,6 +40,16 @@ const DOMAIN_ARCHETYPES: DomainArchetype[] = [
         ],
       },
       {
+        name: "get_recent_messages",
+        method: "GET",
+        path: "/api/chats/recent",
+        description: "Read recent visible message text bubbles from the active conversation.",
+        readOnly: true,
+        params: [
+          { name: "limit", type: "number", in: "query", required: false, description: "Maximum messages to retrieve." },
+        ],
+      },
+      {
         name: "get_chat_history",
         method: "GET",
         path: "/api/chats/{chatId}/messages",

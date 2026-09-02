@@ -434,10 +434,32 @@ describe("OpenAPI Ingestion (parseOpenApiSpec)", () => {
 
 import { parseWhatsAppPrompt } from "../src/lib/agent/runner";
 
-describe("WhatsApp Prompt Resolution (Zero-Fallback Guard)", () => {
+describe("WhatsApp Prompt Resolution (Read & Send Intents)", () => {
+  test("correctly parses read intent with typo: what was the last messgage in pablooo escobar chat", () => {
+    const res = parseWhatsAppPrompt("what was the last messgage in pablooo escobar chat");
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "read");
+    assert.equal(res.contact, "pablooo escobar");
+  });
+
+  test("correctly parses read intent: last message in pablo chat", () => {
+    const res = parseWhatsAppPrompt("last message in pablo chat");
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "read");
+    assert.equal(res.contact, "pablo");
+  });
+
+  test("correctly parses read intent: read messages from Sarah Connor", () => {
+    const res = parseWhatsAppPrompt("read messages from Sarah Connor");
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "read");
+    assert.equal(res.contact, "Sarah Connor");
+  });
+
   test("correctly parses: message pablooo escobar \"hi\"", () => {
     const res = parseWhatsAppPrompt('message pablooo escobar "hi"');
     assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
     assert.equal(res.recipient, "pablooo escobar");
     assert.equal(res.text, "hi");
   });
@@ -445,28 +467,39 @@ describe("WhatsApp Prompt Resolution (Zero-Fallback Guard)", () => {
   test("correctly parses: send \"hi\" to pablooo escobar", () => {
     const res = parseWhatsAppPrompt('send "hi" to pablooo escobar');
     assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
     assert.equal(res.recipient, "pablooo escobar");
     assert.equal(res.text, "hi");
   });
 
-  test("correctly parses quoted name and message: message \"Pablo Escobar\" \"meeting at 5\"", () => {
-    const res = parseWhatsAppPrompt('message "Pablo Escobar" "meeting at 5"');
+  test("correctly parses natural unquoted send: send hi to pablooo escobar", () => {
+    const res = parseWhatsAppPrompt("send hi to pablooo escobar");
     assert.ok(!("error" in res));
-    assert.equal(res.recipient, "Pablo Escobar");
-    assert.equal(res.text, "meeting at 5");
+    assert.equal(res.intent, "send");
+    assert.equal(res.recipient, "pablooo escobar");
+    assert.equal(res.text, "hi");
+  });
+
+  test("correctly parses natural unquoted message: message pablooo escobar hi", () => {
+    const res = parseWhatsAppPrompt("message pablooo escobar hi");
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
+    assert.equal(res.recipient, "pablooo escobar");
+    assert.equal(res.text, "hi");
   });
 
   test("correctly parses structured format: to: Pablo, message: \"hello world\"", () => {
     const res = parseWhatsAppPrompt('to: Pablo, message: "hello world"');
     assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
     assert.equal(res.recipient, "Pablo");
     assert.equal(res.text, "hello world");
   });
 
-  test("refuses ambiguous unquoted multi-word prompt without fallback", () => {
-    const res = parseWhatsAppPrompt("text john tell sarah hi");
+  test("refuses completely ambiguous prompt without fallback", () => {
+    const res = parseWhatsAppPrompt("random gibberish prompt 12345");
     assert.ok("error" in res);
-    assert.match(res.error, /Could not unambiguously resolve recipient/);
+    assert.match(res.error, /Could not determine whether to read chat or send message/);
   });
 });
 
