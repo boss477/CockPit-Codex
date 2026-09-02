@@ -51,14 +51,20 @@ export function Storefront() {
       setRegistered([]);
       return;
     }
-    const gate = new PolicyGate(window.location.origin, true);
+    // Tools generated from another target (an OpenAPI contract, say) belong to
+    // that target, so they execute against whatever the Forge planned for it —
+    // usually the mock generated from the same contract. Storefront tools carry
+    // no base URL and keep calling this app's own routes.
+    const plan = manifest.execution ?? null;
+    const executionBaseUrl = plan?.baseUrl ?? "";
+    const gate = new PolicyGate(window.location.origin, true, plan?.allowedOrigins ?? []);
     const definitions: WebMCPToolDefinition[] = manifest.tools.map((tool: GeneratedTool) => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
       annotations: tool.annotations,
       execute: async (input) => {
-        const result = await makeExecutor(tool, gate)(input);
+        const result = await makeExecutor(tool, gate, executionBaseUrl)(input);
         // Surface what the agent just read, so a person watching the page can
         // see the tool call land rather than having to take it on trust.
         if (tool.name === "get_product" && result.ok && result.data) {

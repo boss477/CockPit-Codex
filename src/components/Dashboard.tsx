@@ -12,6 +12,8 @@ import { useForgeTools } from "./useForgeTools";
 import {
   ActivityLog,
   AgentPanel,
+  ExecutionBadge,
+  ExecutionPanel,
   PipelineRail,
   RequestLog,
   ResultPanel,
@@ -52,6 +54,16 @@ const SAMPLE_BENCHMARKS: SampleBenchmark[] = [
     url: "https://github.com/webmcp-forge/demo-storefront",
     kind: "github",
     description: "Demonstrates personal customer email forwarded to a third-party host.",
+  },
+  {
+    label: "Mock Target Validation",
+    badge: "🧪 Mock Target",
+    findingType: "mock-target",
+    url: "demo-spec",
+    kind: "openapi",
+    description:
+      "Bundled OpenAPI contract with a poisoned description. Generates a mock target " +
+      "from the spec and runs the agent against it for real - no third-party host touched.",
   },
   {
     label: "OpenAPI Spec Ingestion",
@@ -116,7 +128,11 @@ export function Dashboard() {
   const stats = useMemo(() => summarise(state.verdicts), [state.verdicts]);
   const hasManifest = state.manifest !== null;
   const scanned = state.verdicts.length > 0;
+  const plan = state.execution ?? state.manifest?.execution ?? null;
   const isExecutable = useMemo(() => store.isManifestExecutable(state.manifest), [state.manifest]);
+  // Tier 1 is a legitimate outcome, not an error: scan runs, validate does not.
+  const validateDisabled = !scanned || (plan !== null && !plan.executable);
+  const validateReason = plan && !plan.executable ? plan.reason : undefined;
 
   const run = async (action: () => unknown | Promise<unknown>) => {
     setBusy(true);
@@ -169,22 +185,29 @@ export function Dashboard() {
         </div>
       </header>
 
-      {/* Mode Banner */}
+      {/* Execution tier banner. SCAN always runs; the tier decides VALIDATE. */}
       <div
         className="panel px-4 py-2 text-xs flex items-center justify-between gap-2 flex-wrap"
         style={{
-          borderColor: isExecutable ? "var(--ok)" : "var(--warn)",
+          borderColor: !hasManifest
+            ? "var(--line)"
+            : isExecutable
+              ? "var(--ok)"
+              : "var(--warn)",
           background: "var(--panel)",
         }}
       >
-        <div className="flex items-center gap-2">
-          <span className={isExecutable ? "pill pill-ok" : "pill pill-warn"}>
-            {isExecutable ? "⚡ Full Pipeline" : "🛡️ Scan-Only Mode"}
-          </span>
+        <div className="flex items-center gap-2 flex-wrap">
+          {plan ? (
+            <ExecutionBadge plan={plan} />
+          ) : (
+            <span className="pill pill-idle">SCAN ALWAYS RUNS</span>
+          )}
           <span className="subtle">
-            {isExecutable
-              ? "Executable Target Active: Discovery, Static Security Checks & Live PolicyGate Validation"
-              : "Read-Only Target: Static Security Scanning active; Live Execution disabled to protect external hosts"}
+            {plan
+              ? plan.reason
+              : "Analyze any input to see which of the three tiers it qualifies for. " +
+                "The scan needs no execution; only validation needs a target we own."}
           </span>
         </div>
         <button
@@ -204,12 +227,29 @@ export function Dashboard() {
               className="mono text-xs p-1.5 rounded border flex-1 min-w-[240px]"
               style={{ background: "var(--bg)", borderColor: "var(--line)" }}
               value={state.executionBaseUrl}
-              placeholder="http://localhost:3000"
+              placeholder="empty = generate a mock target here · http://localhost:4010 = your own Prism"
               onChange={(e) => store.setExecutionBaseUrl(e.target.value)}
             />
             <span className="subtle">
-              (Live agent calls route through this base URL. Must be localhost or private host for execution.)
+              Must be localhost or a private host. Anything else is refused.
             </span>
+          </div>
+          <div className="subtle space-y-1">
+            <div>
+              <strong>Leave it empty</strong> and a spec becomes a mock target served by this
+              app at <span className="mono">/api/mock/&lt;id&gt;</span>, validating requests
+              against the declared schemas.
+            </div>
+            <div>
+              <strong>Running your own?</strong>{" "}
+              <span className="mono">npx @stoplight/prism-cli mock spec.yaml --port 4010</span>{" "}
+              (or <span className="mono">npm run mock -- spec.yaml</span>), then put{" "}
+              <span className="mono">http://localhost:4010</span> here.
+            </div>
+            <div>
+              <strong>Running the real app?</strong> Point at it directly, e.g.{" "}
+              <span className="mono">http://localhost:3000</span>.
+            </div>
           </div>
         </div>
       )}
@@ -249,14 +289,16 @@ export function Dashboard() {
             </button>
             <button
               className="btn"
-              disabled={busy || !scanned}
+              disabled={busy || validateDisabled}
+              title={validateReason}
               onClick={() => run(() => store.validate("unguarded"))}
             >
               Validate: unguarded agent
             </button>
             <button
               className="btn"
-              disabled={busy || !scanned}
+              disabled={busy || validateDisabled}
+              title={validateReason}
               onClick={() => run(() => store.validate("guarded"))}
             >
               Validate: guarded agent
@@ -294,8 +336,11 @@ export function Dashboard() {
         {/* Structured Result Panel for Analyzed Stack */}
         {state.resultInfo && <ResultPanel resultInfo={state.resultInfo} />}
 
+        {/* Which tier this target qualified for, and why. */}
+        {plan && <ExecutionPanel plan={plan} />}
+
         {/* Validate scenario description */}
-        {scanned && !state.agentRun && (
+        {scanned && !state.agentRun && !validateDisabled && (
           <p className="subtle text-xs">
             Scenario: <em>&ldquo;{store.getTaskForManifest(state.manifest)}&rdquo;</em>
           </p>
@@ -359,9 +404,13 @@ export function Dashboard() {
         <div className="space-y-4">
           <Section
             title="Agent validation"
-            hint="The same task, run two ways, against the tools that were just generated."
+            hint={
+              plan?.tier === "mock-target"
+                ? "The same task, run two ways, against a mock target generated from the same contract as the tools."
+                : "The same task, run two ways, against the tools that were just generated."
+            }
           >
-            <AgentPanel run={state.agentRun} />
+            <AgentPanel run={state.agentRun} plan={plan} />
           </Section>
 
           <Section title="Observed requests" hint="Every network call the generated tools made, and what the gate did with it.">
@@ -384,6 +433,7 @@ export function Dashboard() {
               <li>forge_list_tools</li>
               <li>forge_run_security_scan</li>
               <li>forge_get_findings</li>
+              <li>forge_get_execution_plan</li>
               <li>forge_run_agent_validation</li>
               <li>forge_export_integration</li>
             </ul>

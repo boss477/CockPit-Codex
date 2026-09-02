@@ -109,11 +109,44 @@ export function useForgeTools() {
         },
       },
       {
+        name: "forge_get_execution_plan",
+        description:
+          "Report which of the three execution tiers the analyzed target qualifies for, " +
+          "and the target validation would run against: 'local-app' (an app we own), " +
+          "'mock-target' (a mock generated from the same contract as the tools), or " +
+          "'scan-only' (a third-party site that is scanned but never called). Call this " +
+          "before forge_run_agent_validation to know whether validation can run at all.",
+        inputSchema: { type: "object", properties: {} },
+        annotations: { readOnlyHint: true },
+        execute: async () => {
+          const plan = store.getExecutionPlan();
+          if (!plan) return { ok: false, error: "Nothing analyzed yet." };
+          return {
+            ok: true,
+            tier: plan.tier,
+            badge: store.planBadge(plan),
+            executable: plan.executable,
+            baseUrl: plan.baseUrl || "(this origin)",
+            reason: plan.reason,
+            mock: plan.mock
+              ? {
+                  provider: plan.mock.provider,
+                  baseUrl: plan.mock.baseUrl,
+                  operations: plan.mock.operations,
+                }
+              : null,
+          };
+        },
+      },
+      {
         name: "forge_run_agent_validation",
         description:
-          "Execute the generated tools against the live storefront and report what they " +
-          "actually did. Mode 'unguarded' follows instructions found in tool descriptions; " +
-          "mode 'guarded' refuses blocked tools and ignores metadata directives.",
+          "Execute the generated tools against the declared target and report what they " +
+          "actually did. The target is whatever forge_get_execution_plan reports: this " +
+          "app, an app you are running, or a mock generated from the contract. A " +
+          "'scan-only' target refuses to run. Mode 'unguarded' follows instructions found " +
+          "in tool descriptions; mode 'guarded' refuses blocked tools and ignores " +
+          "metadata directives.",
         inputSchema: {
           type: "object",
           properties: {
@@ -123,12 +156,21 @@ export function useForgeTools() {
         },
         execute: async (input) => {
           const mode = input.mode === "guarded" ? "guarded" : "unguarded";
+          const plan = store.getExecutionPlan();
+          if (plan && !plan.executable) {
+            return {
+              ok: false,
+              tier: plan.tier,
+              error: `Validation is disabled for this target. ${plan.reason}`,
+            };
+          }
           store.note("agent", `Agent started the ${mode} validation run`);
           const steps = await store.validate(mode, "agent");
-          if (!steps) return { ok: false, error: "Nothing analyzed yet." };
+          if (!steps) return { ok: false, error: "Nothing analyzed yet, or the target is scan-only." };
           return {
             ok: true,
             mode,
+            target: plan ? store.planBadge(plan) : "this origin",
             steps: steps.map((step) => ({
               tool: step.tool,
               status: step.status,
