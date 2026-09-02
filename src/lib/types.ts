@@ -48,6 +48,39 @@ export interface GeneratedTool {
   origin: { source: string; capabilityId: string };
 }
 
+export interface ParamSpec {
+  name: string;
+  in: "query" | "body" | "path" | "header";
+  type: "string" | "number" | "boolean" | "object" | "array";
+  required: boolean;
+  description: string;
+}
+
+/** Canonical descriptor produced by all input paths (repo, openapi, live). */
+export interface ToolSource {
+  id: string;
+  name: string;
+  method: HttpMethod;
+  path: string;
+  baseUrl: string | null;
+  params: ParamSpec[];
+  description: string;
+  executable: boolean;
+  origin: "repo" | "openapi" | "live-webmcp";
+  source?: string;
+  doc?: string;
+}
+
+export type InputKind = "github" | "openapi" | "live";
+
+export type FileTree = Array<{ path: string; content: string }>;
+
+export interface RouteAdapter {
+  name: string;
+  detect(files: FileTree): boolean;
+  extract(files: FileTree): ToolSource[];
+}
+
 export interface ToolManifest {
   repoUrl: string;
   repoLabel: string;
@@ -56,6 +89,9 @@ export interface ToolManifest {
   analyzer: "llm" | "static";
   capabilities: Capability[];
   tools: GeneratedTool[];
+  matchedAdapters?: string[];
+  inputKind?: InputKind;
+  sources?: ToolSource[];
 }
 
 export type Severity = "high" | "medium" | "low";
@@ -121,6 +157,16 @@ export type Stage =
   | "validating"
   | "done";
 
+export interface ResultInfo {
+  detectedStack?: string;
+  matchedAdapters?: string[];
+  noContract?: boolean;
+  message?: string;
+  suggestedActions?: string[];
+  probedPaths?: string[];
+  targetUrl?: string;
+}
+
 export interface ForgeState {
   stage: Stage;
   manifest: ToolManifest | null;
@@ -129,6 +175,9 @@ export interface ForgeState {
   agentRun: AgentRun | null;
   log: LogEntry[];
   error: string | null;
+  inputKind: InputKind;
+  executionBaseUrl: string;
+  resultInfo: ResultInfo | null;
 }
 
 export interface LogEntry {

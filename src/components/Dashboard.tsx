@@ -6,8 +6,70 @@ import * as store from "@/lib/store";
 import { generateIntegration } from "@/lib/codegen";
 import { summarise } from "@/lib/security/scan";
 import { isWebMCPAvailable } from "@/lib/webmcp";
+import { resolveInput } from "@/lib/inputRouter";
+import type { InputKind } from "@/lib/types";
 import { useForgeTools } from "./useForgeTools";
-import { ActivityLog, AgentPanel, PipelineRail, RequestLog, ToolCard, WebMCPStatusPanel } from "./Panels";
+import {
+  ActivityLog,
+  AgentPanel,
+  PipelineRail,
+  RequestLog,
+  ResultPanel,
+  ToolCard,
+  WebMCPStatusPanel,
+} from "./Panels";
+
+interface SampleBenchmark {
+  label: string;
+  badge: string;
+  findingType: string;
+  url: string;
+  kind: InputKind;
+  description: string;
+}
+
+const SAMPLE_BENCHMARKS: SampleBenchmark[] = [
+  {
+    label: "Prompt Injection in Metadata",
+    badge: "🚨 Injection",
+    findingType: "metadata-injection",
+    url: "https://github.com/webmcp-forge/demo-storefront",
+    kind: "github",
+    description: "Demonstrates hidden directives & instructions inside tool comments (track_order).",
+  },
+  {
+    label: "Read-Only Mismatch Mutation",
+    badge: "⚠️ Unbounded Action",
+    findingType: "readonly-mismatch",
+    url: "https://github.com/webmcp-forge/demo-storefront",
+    kind: "github",
+    description: "Demonstrates POST /checkout masquerading as a harmless read-only summary.",
+  },
+  {
+    label: "Sensitive Data Egress",
+    badge: "🔒 Exfiltration",
+    findingType: "sensitive-data-egress",
+    url: "https://github.com/webmcp-forge/demo-storefront",
+    kind: "github",
+    description: "Demonstrates personal customer email forwarded to a third-party host.",
+  },
+  {
+    label: "OpenAPI Spec Ingestion",
+    badge: "📜 Spec Audit",
+    findingType: "openapi-spec",
+    url: "https://petstore.swagger.io/v2/swagger.json",
+    kind: "openapi",
+    description: "Automated ingestion of OpenAPI / Swagger contracts.",
+  },
+  {
+    label: "Live Web Page Audit",
+    badge: "🌐 Live Contract",
+    findingType: "live-probe",
+    url: "https://motion.so/agent",
+    kind: "live",
+    description: "Probes live websites for OpenAPI endpoints and WebMCP contracts.",
+  },
+];
 
 function Section({
   title,
@@ -37,14 +99,24 @@ export function Dashboard() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [webmcp, setWebmcp] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
 
   useEffect(() => {
     setWebmcp(isWebMCPAvailable());
   }, []);
 
+  // Compute detected input kind based on current input text
+  const detectedKind = useMemo(() => resolveInput(repoUrl), [repoUrl]);
+
+  // If user hasn't explicitly locked a kind, track detected kind in store
+  useEffect(() => {
+    store.setInputKind(detectedKind);
+  }, [detectedKind]);
+
   const stats = useMemo(() => summarise(state.verdicts), [state.verdicts]);
   const hasManifest = state.manifest !== null;
   const scanned = state.verdicts.length > 0;
+  const isExecutable = useMemo(() => store.isManifestExecutable(state.manifest), [state.manifest]);
 
   const run = async (action: () => unknown | Promise<unknown>) => {
     setBusy(true);
@@ -53,6 +125,12 @@ export function Dashboard() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const selectSample = (sample: SampleBenchmark) => {
+    setRepoUrl(sample.url);
+    store.setInputKind(sample.kind);
+    run(() => store.analyze(sample.url, "human", sample.kind));
   };
 
   const download = () => {
@@ -73,7 +151,7 @@ export function Dashboard() {
         <div>
           <h1 className="text-xl font-semibold">WebMCP Forge</h1>
           <p className="subtle text-sm mt-1 max-w-2xl">
-            Generate WebMCP tools from a web app, then prove which ones are safe for an
+            Generate WebMCP tools from a web app or API, then prove which ones are safe for an
             agent to use. This dashboard is itself a WebMCP surface, so an agent can drive
             every step below while you watch it happen.
           </p>
@@ -91,50 +169,135 @@ export function Dashboard() {
         </div>
       </header>
 
+      {/* Mode Banner */}
+      <div
+        className="panel px-4 py-2 text-xs flex items-center justify-between gap-2 flex-wrap"
+        style={{
+          borderColor: isExecutable ? "var(--ok)" : "var(--warn)",
+          background: "var(--panel)",
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <span className={isExecutable ? "pill pill-ok" : "pill pill-warn"}>
+            {isExecutable ? "⚡ Full Pipeline" : "🛡️ Scan-Only Mode"}
+          </span>
+          <span className="subtle">
+            {isExecutable
+              ? "Executable Target Active: Discovery, Static Security Checks & Live PolicyGate Validation"
+              : "Read-Only Target: Static Security Scanning active; Live Execution disabled to protect external hosts"}
+          </span>
+        </div>
+        <button
+          className="subtle hover:text-[var(--text)] underline cursor-pointer"
+          onClick={() => setShowConfig(!showConfig)}
+        >
+          {showConfig ? "Hide Settings" : "Execution Settings"}
+        </button>
+      </div>
+
+      {showConfig && (
+        <div className="panel p-3 text-xs space-y-2 border-dashed" style={{ borderColor: "var(--line)" }}>
+          <div className="font-semibold text-xs subtle uppercase">Target Execution Base URL</div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="text"
+              className="mono text-xs p-1.5 rounded border flex-1 min-w-[240px]"
+              style={{ background: "var(--bg)", borderColor: "var(--line)" }}
+              value={state.executionBaseUrl}
+              placeholder="http://localhost:3000"
+              onChange={(e) => store.setExecutionBaseUrl(e.target.value)}
+            />
+            <span className="subtle">
+              (Live agent calls route through this base URL. Must be localhost or private host for execution.)
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="panel p-4 space-y-3">
-        <div className="flex gap-2 flex-wrap items-center">
-          <input
-            type="text"
-            className="mono text-sm flex-1 min-w-[280px]"
-            placeholder="https://github.com/owner/repo  (empty = bundled demo storefront)"
-            value={repoUrl}
-            onChange={(event) => setRepoUrl(event.target.value)}
-          />
-          <button
-            className="btn btn-primary"
-            disabled={busy}
-            onClick={() => run(() => store.analyze(repoUrl))}
-          >
-            Analyze
-          </button>
-          <button className="btn" disabled={busy || !hasManifest} onClick={() => run(() => store.scan())}>
-            Run security scan
-          </button>
-          <button
-            className="btn"
-            disabled={busy || !scanned}
-            onClick={() => run(() => store.validate("unguarded"))}
-          >
-            Validate: unguarded agent
-          </button>
-          <button
-            className="btn"
-            disabled={busy || !scanned}
-            onClick={() => run(() => store.validate("guarded"))}
-          >
-            Validate: guarded agent
-          </button>
-          <button className="btn" disabled={!hasManifest} onClick={download}>
-            Export integration
-          </button>
+        {/* Input Bar with Kind Indicator */}
+        <div className="space-y-2">
+          <div className="flex gap-2 flex-wrap items-center">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="pill pill-idle text-xs mono">
+                {state.inputKind === "github"
+                  ? "📦 GitHub"
+                  : state.inputKind === "openapi"
+                    ? "📜 OpenAPI"
+                    : "🌐 Live URL"}
+              </span>
+            </div>
+            <input
+              type="text"
+              className="mono text-sm flex-1 min-w-[280px]"
+              placeholder="GitHub repo, OpenAPI JSON/YAML, or live URL (empty = demo storefront)"
+              value={repoUrl}
+              onChange={(event) => setRepoUrl(event.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") run(() => store.analyze(repoUrl));
+              }}
+            />
+            <button
+              className="btn btn-primary"
+              disabled={busy}
+              onClick={() => run(() => store.analyze(repoUrl))}
+            >
+              Analyze
+            </button>
+            <button className="btn" disabled={busy || !hasManifest} onClick={() => run(() => store.scan())}>
+              Run security scan
+            </button>
+            <button
+              className="btn"
+              disabled={busy || !scanned || !isExecutable}
+              title={!isExecutable ? "Disabled in scan-only mode: no local execution target" : undefined}
+              onClick={() => run(() => store.validate("unguarded"))}
+            >
+              Validate: unguarded agent
+            </button>
+            <button
+              className="btn"
+              disabled={busy || !scanned || !isExecutable}
+              title={!isExecutable ? "Disabled in scan-only mode: no local execution target" : undefined}
+              onClick={() => run(() => store.validate("guarded"))}
+            >
+              Validate: guarded agent
+            </button>
+            <button className="btn" disabled={!hasManifest} onClick={download}>
+              Export integration
+            </button>
+          </div>
+
+          {/* Sample Security Finding Chips */}
+          <div className="pt-2 border-t space-y-1.5" style={{ borderColor: "var(--line)" }}>
+            <div className="text-xs subtle uppercase font-semibold">Sample Security Benchmarks</div>
+            <div className="flex gap-2 flex-wrap">
+              {SAMPLE_BENCHMARKS.map((sample) => (
+                <button
+                  key={sample.label}
+                  className="pill cursor-pointer transition-colors hover:border-[var(--accent)] hover:text-[var(--text)] text-xs text-left"
+                  style={{
+                    borderColor: repoUrl === sample.url ? "var(--accent)" : "var(--line)",
+                    background: "var(--bg)",
+                  }}
+                  title={sample.description}
+                  onClick={() => selectSample(sample)}
+                >
+                  <span className="font-semibold mr-1">{sample.badge}</span>
+                  <span className="subtle">{sample.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <PipelineRail stage={state.stage} />
 
-        {/* Both validate buttons run this one task, which is otherwise only
-            discoverable after clicking. */}
-        {scanned && !state.agentRun && (
+        {/* Structured Result Panel for Analyzed Stack / No Contract */}
+        {state.resultInfo && <ResultPanel resultInfo={state.resultInfo} />}
+
+        {/* Validate task description */}
+        {scanned && !state.agentRun && isExecutable && (
           <p className="subtle text-xs">
             Both agents run the same task: <em>{store.AGENT_TASK}</em>
           </p>
@@ -149,7 +312,7 @@ export function Dashboard() {
         {hasManifest && (
           <div className="flex gap-4 flex-wrap text-xs subtle">
             <span>
-              repo <span className="mono" style={{ color: "var(--text)" }}>{state.manifest!.repoLabel}</span>
+              target <span className="mono" style={{ color: "var(--text)" }}>{state.manifest!.repoLabel}</span>
             </span>
             <span>
               capabilities <span style={{ color: "var(--text)" }}>{state.manifest!.capabilities.length}</span>
@@ -188,7 +351,7 @@ export function Dashboard() {
               </div>
             ) : (
               <p className="subtle text-sm">
-                Analyze a repository to generate tools. The bundled storefront is a small
+                Analyze a repository, OpenAPI contract, or live URL to generate tools. The bundled storefront is a small
                 Next.js app that was never built for agents.
               </p>
             )}
@@ -200,11 +363,11 @@ export function Dashboard() {
             title="Agent validation"
             hint="The same task, run two ways, against the tools that were just generated."
           >
-            <AgentPanel run={state.agentRun} />
+            <AgentPanel run={state.agentRun} scanOnly={hasManifest && !isExecutable} />
           </Section>
 
           <Section title="Observed requests" hint="Every network call the generated tools made, and what the gate did with it.">
-            <RequestLog requests={state.observed} />
+            <RequestLog requests={state.observed} scanOnly={hasManifest && !isExecutable} />
           </Section>
         </div>
 
@@ -232,7 +395,6 @@ export function Dashboard() {
             </p>
           </Section>
         </div>
-
       </div>
 
       <footer className="py-2 text-center text-xs subtle">

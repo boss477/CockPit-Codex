@@ -7,6 +7,7 @@ import type {
   GeneratedTool,
   LogEntry,
   ObservedRequest,
+  ResultInfo,
   Stage,
   ToolVerdict,
 } from "@/lib/types";
@@ -15,7 +16,6 @@ import {
   subscribeWebMCPDiagnostics,
   type WebMCPDiagnostics,
 } from "@/lib/webmcp";
-
 
 const STAGES: { id: Stage; label: string }[] = [
   { id: "discovering", label: "Discover" },
@@ -88,8 +88,6 @@ export function ToolCard({
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {tool.annotations.readOnlyHint && <span className="pill pill-idle">read-only</span>}
-            {/* Surfaced while collapsed: a medium finding is otherwise invisible
-                on a tool whose verdict still reads "verified". */}
             {!expanded && findingCount > 0 && (
               <span className="pill pill-warn">
                 {findingCount} finding{findingCount > 1 ? "s" : ""}
@@ -103,19 +101,27 @@ export function ToolCard({
       </button>
 
       {expanded && (
-        <div className="mt-3 border-t pt-3 space-y-3" style={{ borderColor: "var(--line)" }}>
+        <div className="mt-3 pt-3 border-t space-y-3" style={{ borderColor: "var(--line)" }}>
           <div>
-            <div className="subtle text-xs mb-1">Description exposed to the agent</div>
-            <p className="text-xs whitespace-pre-wrap mono" style={{ color: "var(--text)" }}>
-              {tool.description}
-            </p>
+            <div className="subtle text-xs font-semibold uppercase">Description (Agent Input)</div>
+            <p className="text-sm mt-1">{tool.description}</p>
           </div>
-          <div className="subtle text-xs">
-            Origin: <span className="mono">{tool.origin.source}</span>
+
+          <div>
+            <div className="subtle text-xs font-semibold uppercase">Schema</div>
+            <pre className="mono text-xs mt-1 p-2 rounded overflow-x-auto" style={{ background: "var(--bg)" }}>
+              {JSON.stringify(tool.inputSchema, null, 2)}
+            </pre>
           </div>
-          {(verdict?.findings ?? []).map((finding) => (
-            <FindingCard key={finding.id} finding={finding} />
-          ))}
+
+          {verdict && verdict.findings.length > 0 && (
+            <div className="space-y-2">
+              <div className="subtle text-xs font-semibold uppercase">Findings</div>
+              {verdict.findings.map((f) => (
+                <FindingCard key={f.id} finding={f} />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -124,8 +130,8 @@ export function ToolCard({
 
 export function FindingCard({ finding }: { finding: Finding }) {
   return (
-    <div className="panel p-3" style={{ background: "var(--panel-2)" }}>
-      <div className="flex items-center gap-2 flex-wrap">
+    <div className="p-3 rounded border" style={{ borderColor: "var(--line)", background: "var(--panel)" }}>
+      <div className="flex items-center gap-2">
         <span className={severityClass(finding.severity)}>{finding.severity}</span>
         <span className="pill pill-idle">{finding.phase}</span>
         <span className="mono text-xs subtle">{finding.check}</span>
@@ -142,7 +148,90 @@ export function FindingCard({ finding }: { finding: Finding }) {
   );
 }
 
-export function AgentPanel({ run }: { run: AgentRun | null }) {
+export function ResultPanel({
+  resultInfo,
+  onSelectSample,
+}: {
+  resultInfo: ResultInfo;
+  onSelectSample?: (url: string) => void;
+}) {
+  if (resultInfo.noContract) {
+    return (
+      <div className="panel p-4 space-y-3" style={{ borderColor: "var(--warn)" }}>
+        <div className="flex items-center gap-2">
+          <span className="pill pill-warn">Live Audit</span>
+          <h3 className="font-semibold text-sm">No Machine-Readable Contract Found</h3>
+        </div>
+        <p className="subtle text-xs">{resultInfo.message}</p>
+
+        {resultInfo.probedPaths && resultInfo.probedPaths.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-xs font-semibold subtle uppercase">Probed Endpoints</div>
+            <ul className="mono text-xs subtle space-y-0.5">
+              {resultInfo.probedPaths.map((p) => (
+                <li key={p}>• {p} (404 / no spec)</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {resultInfo.suggestedActions && resultInfo.suggestedActions.length > 0 && (
+          <div className="space-y-1 pt-2 border-t" style={{ borderColor: "var(--line)" }}>
+            <div className="text-xs font-semibold subtle uppercase">Suggested Actions</div>
+            <ul className="text-xs space-y-1">
+              {resultInfo.suggestedActions.map((action, i) => (
+                <li key={i} className="subtle">
+                  👉 {action}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (resultInfo.matchedAdapters && resultInfo.matchedAdapters.length > 0) {
+    return (
+      <div className="panel p-3 text-xs space-y-1.5" style={{ borderColor: "var(--ok)" }}>
+        <div className="flex items-center justify-between">
+          <span className="subtle uppercase font-semibold">Detected Input & Stack</span>
+          <span className="pill pill-ok">Valid Contract</span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="subtle">Matched Adapters:</span>
+          {resultInfo.matchedAdapters.map((a) => (
+            <span key={a} className="mono pill pill-idle">
+              {a}
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+export function AgentPanel({
+  run,
+  scanOnly = false,
+}: {
+  run: AgentRun | null;
+  scanOnly?: boolean;
+}) {
+  if (scanOnly) {
+    return (
+      <div className="p-4 rounded border border-dashed text-center space-y-2" style={{ borderColor: "var(--line)" }}>
+        <span className="pill pill-warn">Scan-Only Target</span>
+        <p className="subtle text-xs">
+          Live execution is disabled because this is an external or read-only target with no local test server configured.
+          The static security scan has analyzed all tool descriptions and metadata.
+        </p>
+      </div>
+    );
+  }
+
   if (!run) {
     return (
       <p className="subtle text-sm">
@@ -185,10 +274,27 @@ export function AgentPanel({ run }: { run: AgentRun | null }) {
   );
 }
 
-export function RequestLog({ requests }: { requests: ObservedRequest[] }) {
+export function RequestLog({
+  requests,
+  scanOnly = false,
+}: {
+  requests: ObservedRequest[];
+  scanOnly?: boolean;
+}) {
+  if (scanOnly) {
+    return (
+      <div className="p-3 rounded border border-dashed" style={{ borderColor: "var(--line)" }}>
+        <p className="subtle text-xs">
+          PolicyGate is standing by. In scan-only mode, network calls are not dispatched against production endpoints.
+        </p>
+      </div>
+    );
+  }
+
   if (requests.length === 0) {
     return <p className="subtle text-sm">Nothing observed yet.</p>;
   }
+
   return (
     <div className="space-y-1">
       {requests.map((request, i) => (
@@ -318,4 +424,3 @@ export function WebMCPStatusPanel() {
     </div>
   );
 }
-

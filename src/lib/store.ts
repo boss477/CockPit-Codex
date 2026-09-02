@@ -1,6 +1,6 @@
 "use client";
 
-import type { AgentStep, ForgeState, LogEntry, ToolManifest } from "./types";
+import type { AgentStep, ForgeState, InputKind, LogEntry, ToolManifest } from "./types";
 import { PolicyGate } from "./security/monitor";
 import { mergeRuntimeFindings, scanManifest } from "./security/scan";
 import { AGENT_TASK, runAgent, type AgentMode } from "./agent/runner";
@@ -13,6 +13,9 @@ const initialState: ForgeState = {
   agentRun: null,
   log: [],
   error: null,
+  inputKind: "github",
+  executionBaseUrl: "http://localhost:3000",
+  resultInfo: null,
 };
 
 let state: ForgeState = initialState;
@@ -44,6 +47,14 @@ export function note(actor: LogEntry["actor"], message: string) {
   log(actor, message);
 }
 
+export function setInputKind(inputKind: InputKind) {
+  set({ inputKind });
+}
+
+export function setExecutionBaseUrl(executionBaseUrl: string) {
+  set({ executionBaseUrl });
+}
+
 const MANIFEST_KEY = "webmcp-forge:manifest";
 
 /** The shop page reads the manifest the Forge produced. Same origin, so this is enough. */
@@ -65,33 +76,96 @@ export function loadPersistedManifest(): ToolManifest | null {
   }
 }
 
+export function isManifestExecutable(manifest: ToolManifest | null): boolean {
+  if (!manifest || manifest.tools.length === 0) return false;
+  // If manifest has sources, check if any is executable
+  if (manifest.sources && manifest.sources.length > 0) {
+    return manifest.sources.some((s) => s.executable);
+  }
+  // Bundled storefront and local repo are executable by default
+  return manifest.repoUrl.includes("demo-storefront") || manifest.repoUrl === "" || manifest.inputKind === "github";
+}
+
 /* ------------------------------------------------------------------ */
 /* Actions. Each one is callable from the UI and from a WebMCP tool.   */
 /* ------------------------------------------------------------------ */
 
-export async function analyze(repoUrl: string, actor: LogEntry["actor"] = "human") {
-  set({ stage: "discovering", error: null, verdicts: [], agentRun: null, observed: [] });
-  log(actor, `Analyzing ${repoUrl || "the bundled demo storefront"}`);
+export async function analyze(
+  repoUrl: string,
+  actor: LogEntry["actor"] = "human",
+  overrideKind?: InputKind,
+) {
+  const kindToUse = overrideKind || state.inputKind;
+  set({
+    stage: "discovering",
+    error: null,
+    verdicts: [],
+    agentRun: null,
+    observed: [],
+    resultInfo: null,
+  });
+  log(actor, `Analyzing ${repoUrl || "the bundled demo storefront"} (${kindToUse})`);
 
   const response = await fetch("/api/analyze", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ repoUrl }),
+    body: JSON.stringify({
+      repoUrl,
+      inputKind: kindToUse,
+      executionBaseUrl: state.executionBaseUrl,
+    }),
   });
   const payload = await response.json();
 
   if (!response.ok) {
-    set({ stage: "idle", error: payload.error ?? "Analysis failed." });
+    set({
+      stage: "idle",
+      error: payload.error ?? "Analysis failed.",
+      resultInfo: {
+        message: payload.error ?? response.statusText,
+        detectedStack: payload.inputKind ?? kindToUse,
+        matchedAdapters: [],
+      },
+    });
     log("system", `Analysis failed: ${payload.error ?? response.status}`);
     return null;
   }
 
+  // Handle structured "no contract found" result for live mode
+  if (payload.noContractFound) {
+    set({
+      stage: "idle",
+      manifest: null,
+      error: null,
+      resultInfo: {
+        noContract: true,
+        message: payload.message,
+        suggestedActions: payload.suggestedActions,
+        probedPaths: payload.audit?.probedPaths,
+        targetUrl: payload.targetUrl,
+        detectedStack: "Live URL (No OpenAPI / WebMCP contract)",
+      },
+    });
+    log("system", `Live audit completed: no machine-readable contract found at ${payload.targetUrl}`);
+    return null;
+  }
+
   const manifest = payload.manifest as ToolManifest;
-  set({ stage: "generating", manifest });
+  const matchedAdapters = payload.matchedAdapters ?? manifest.matchedAdapters ?? [];
+
+  set({
+    stage: "generating",
+    manifest,
+    inputKind: payload.inputKind ?? kindToUse,
+    resultInfo: {
+      matchedAdapters,
+      detectedStack: payload.inputKind ?? kindToUse,
+    },
+  });
   persistManifest(manifest);
   log(
     "system",
-    `Discovered ${manifest.capabilities.length} capabilities and generated ${manifest.tools.length} tools`,
+    `Discovered ${manifest.capabilities.length} capabilities and generated ${manifest.tools.length} tools via [${matchedAdapters.join(", ")}]`,
   );
   set({ stage: "generating" });
   return manifest;
@@ -116,6 +190,14 @@ export function scan(actor: LogEntry["actor"] = "human") {
 export async function validate(mode: AgentMode, actor: LogEntry["actor"] = "human") {
   if (!state.manifest) return null;
   if (state.verdicts.length === 0) scan(actor);
+
+  if (!isManifestExecutable(state.manifest)) {
+    log(
+      "system",
+      "Live validation skipped: target is in Scan-Only mode (read-only target with no local execution URL).",
+    );
+    return null;
+  }
 
   const gate = new PolicyGate(window.location.origin, true);
   const steps: AgentStep[] = [];
