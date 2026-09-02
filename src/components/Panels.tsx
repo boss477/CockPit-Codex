@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type {
   AgentRun,
+  ExecutionPlan,
   Finding,
   GeneratedTool,
   LogEntry,
@@ -11,6 +12,7 @@ import type {
   Stage,
   ToolVerdict,
 } from "@/lib/types";
+import { planBadge } from "@/lib/executionPlan";
 import {
   getWebMCPDiagnostics,
   subscribeWebMCPDiagnostics,
@@ -50,6 +52,76 @@ export function PipelineRail({ stage }: { stage: Stage }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * Says out loud what the agent is about to be pointed at. "We tested against a
+ * generated mock" is a respectable answer; leaving it implied is not.
+ */
+export function ExecutionBadge({ plan }: { plan: ExecutionPlan | null }) {
+  if (!plan) return <span className="pill pill-idle">NO TARGET</span>;
+  const className =
+    plan.tier === "scan-only"
+      ? "pill pill-warn"
+      : plan.tier === "local-app"
+        ? "pill pill-ok"
+        : "pill";
+  const style =
+    plan.tier === "mock-target"
+      ? { borderColor: "var(--accent)", color: "var(--accent)" }
+      : undefined;
+  return (
+    <span className={`${className} mono text-[10px]`} style={style} title={plan.reason}>
+      {planBadge(plan)}
+    </span>
+  );
+}
+
+export function ExecutionPanel({ plan }: { plan: ExecutionPlan | null }) {
+  if (!plan) return null;
+  const tone =
+    plan.tier === "scan-only"
+      ? "var(--warn)"
+      : plan.tier === "local-app"
+        ? "var(--ok)"
+        : "var(--accent)";
+
+  return (
+    <div className="panel p-3 text-xs space-y-2" style={{ borderColor: tone }}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <ExecutionBadge plan={plan} />
+        <span className="subtle uppercase font-semibold">
+          {plan.tier === "scan-only"
+            ? "Tier 1 - scan only"
+            : plan.tier === "mock-target"
+              ? "Tier 2 - generated mock target"
+              : "Tier 3 - real execution"}
+        </span>
+        {plan.baseUrl && (
+          <span className="mono subtle">
+            baseUrl <span style={{ color: "var(--text)" }}>{plan.baseUrl}</span>
+          </span>
+        )}
+        {plan.mock && (
+          <span className="subtle">{plan.mock.operations} operation(s) from the contract</span>
+        )}
+      </div>
+      <p className="subtle">{plan.reason}</p>
+      {plan.tier === "scan-only" && (
+        <p className="subtle">
+          The scan still runs, and it is the finding that matters here - it needs no
+          execution. To validate this target, run it (or a mock of it) yourself and set the
+          base URL under Execution Settings.
+        </p>
+      )}
+      {plan.mock?.provider === "builtin" && (
+        <p className="subtle">
+          Prefer your own mock? Run <span className="mono">npm run mock -- &lt;spec&gt;</span>{" "}
+          and set the base URL to <span className="mono">http://localhost:4010</span>.
+        </p>
+      )}
     </div>
   );
 }
@@ -202,15 +274,21 @@ export function ResultPanel({
 
 export function AgentPanel({
   run,
+  plan,
 }: {
   run: AgentRun | null;
+  plan?: ExecutionPlan | null;
 }) {
   if (!run) {
     return (
       <div className="space-y-2">
-        <p className="subtle text-sm">
-          No agent run yet. Click <strong>Validate: unguarded agent</strong> to see an AI agent blindly follow tool descriptions, or <strong>Validate: guarded agent</strong> to see PolicyGate protect the session.
-        </p>
+        {plan && !plan.executable ? (
+          <p className="subtle text-sm">Validation is disabled for this target. {plan.reason}</p>
+        ) : (
+          <p className="subtle text-sm">
+            No agent run yet. Click <strong>Validate: unguarded agent</strong> to see an AI agent blindly follow tool descriptions, or <strong>Validate: guarded agent</strong> to see PolicyGate protect the session.
+          </p>
+        )}
       </div>
     );
   }
@@ -221,7 +299,10 @@ export function AgentPanel({
     <div className="space-y-3">
       {/* Dynamic Task Header */}
       <div className="p-2.5 rounded border" style={{ background: "var(--bg)", borderColor: "var(--line)" }}>
-        <div className="text-xs font-semibold subtle uppercase mb-1">Agent Scenario Goal</div>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="text-xs font-semibold subtle uppercase">Agent Scenario Goal</div>
+          {plan && <ExecutionBadge plan={plan} />}
+        </div>
         <div className="text-xs italic" style={{ color: "var(--text)" }}>
           &ldquo;{run.task}&rdquo;
         </div>
@@ -325,20 +406,27 @@ export function RequestLog({
 
   return (
     <div className="space-y-1.5">
-      {requests.map((request, i) => (
+      {requests.map((request, i) => {
+        const blocked = request.outcome === "blocked";
+        // Cross-origin but declared: the mock target we generated and own.
+        const toMock = request.declaredTarget && request.crossOrigin;
+        return (
         <div
           key={i}
           className="mono text-xs p-2 rounded border flex items-center justify-between gap-2"
           style={{
-            borderColor: request.crossOrigin ? "var(--bad)" : "var(--line)",
+            borderColor: blocked ? "var(--bad)" : toMock ? "var(--accent)" : "var(--line)",
             background: "var(--panel)",
           }}
         >
           <div className="flex items-center gap-2 min-w-0">
             <span
-              className={request.crossOrigin ? "pill pill-bad text-[10px]" : "pill pill-ok text-[10px]"}
+              className={blocked ? "pill pill-bad text-[10px]" : "pill pill-ok text-[10px]"}
+              style={
+                !blocked && toMock ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined
+              }
             >
-              {request.crossOrigin ? "BLOCKED" : "SENT"}
+              {blocked ? "BLOCKED" : toMock ? "MOCK" : "SENT"}
             </span>
             <span className="subtle font-semibold">{request.method}</span>
             <span className="truncate text-xs">{request.url}</span>
@@ -347,7 +435,8 @@ export function RequestLog({
             {new Date(request.at).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })}
           </span>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
