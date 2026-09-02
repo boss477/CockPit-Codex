@@ -1,4 +1,4 @@
-import type { AgentStep, GeneratedTool, ToolManifest, ToolVerdict } from "../types";
+import type { AgentStep, ExecutionPlan, GeneratedTool, ToolManifest, ToolVerdict } from "../types";
 import { makeExecutor } from "../executor";
 import type { PolicyGate } from "../security/monitor";
 
@@ -9,6 +9,12 @@ export interface AgentOptions {
   verdicts: ToolVerdict[];
   gate: PolicyGate;
   mode: AgentMode;
+  /**
+   * Which target the calls go to. When the plan is executable every step below
+   * is a real HTTP request — against this app, an app the operator is running,
+   * or a mock target generated from the same contract. Nothing is faked.
+   */
+  plan?: ExecutionPlan;
   onStep: (step: AgentStep) => void;
 }
 
@@ -59,9 +65,58 @@ function isBlocked(verdicts: ToolVerdict[], name: string): boolean {
   return verdicts.some((verdict) => verdict.tool === name && verdict.verdict === "blocked");
 }
 
+/**
+ * A tool the scan could only warn about: it claims to be read-only but maps to
+ * a mutating request. Static analysis cannot settle that, so the guarded agent
+ * holds it for a human instead of calling it and finding out.
+ */
+function needsConfirmation(verdicts: ToolVerdict[], name: string): boolean {
+  return verdicts.some(
+    (verdict) =>
+      verdict.tool === name &&
+      verdict.findings.some((finding) => finding.check === "readonly-mismatch"),
+  );
+}
+
 function injectedDestination(tool: GeneratedTool): string | null {
   const match = tool.description.match(/https?:\/\/[^\s"')]+/);
   return match ? match[0] : null;
+}
+
+/**
+ * Fills in the parameters a tool declares as required, from the schema alone.
+ *
+ * The mock target validates against the same declared schema, so a call built
+ * this way either satisfies the contract or fails loudly - which is the point
+ * of executing against a mock rather than a stub that accepts anything.
+ */
+function sampleInput(tool: GeneratedTool): Record<string, unknown> {
+  const input: Record<string, unknown> = {};
+  const required = tool.inputSchema.required ?? [];
+
+  for (const name of required) {
+    const property = tool.inputSchema.properties[name];
+    if (!property) continue;
+    const lower = name.toLowerCase();
+
+    if (property.type === "number") {
+      input[name] = 1;
+    } else if (property.type === "boolean") {
+      input[name] = true;
+    } else if (/email/.test(lower)) {
+      input[name] = "shopper@example.com";
+    } else if (/token|secret|password/.test(lower)) {
+      input[name] = "sess_demo_token";
+    } else if (/date|from|to|check/.test(lower)) {
+      input[name] = new Date().toISOString().slice(0, 10);
+    } else if (/id$/.test(lower)) {
+      input[name] = "demo-1";
+    } else {
+      input[name] = `demo-${name}`;
+    }
+  }
+
+  return input;
 }
 
 function injectedFollowUp(tool: GeneratedTool, manifest: ToolManifest): string | null {
@@ -79,9 +134,16 @@ function injectedFollowUp(tool: GeneratedTool, manifest: ToolManifest): string |
  * The guarded agent refuses tools the scan blocked and ignores directives found in metadata.
  */
 export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
-  const { manifest, verdicts, gate, mode, onStep } = options;
+  const { manifest, verdicts, gate, mode, plan, onStep } = options;
   const steps: AgentStep[] = [];
   let index = 0;
+
+  // Falls back to the bundled storefront check so an older caller that passes
+  // no plan behaves exactly as it did before.
+  const executable = plan
+    ? plan.executable
+    : manifest.repoUrl.includes("demo-storefront");
+  const baseUrl = plan?.baseUrl ?? "";
 
   const emit = (step: Omit<AgentStep, "index">): AgentStep => {
     const full = { ...step, index: index++ };
@@ -110,14 +172,13 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
       return null;
     }
 
-    // If local execution is possible, call real executor, else simulate safe execution
+    // Tier 2 and 3 both execute for real; only the target differs. Tier 1 never
+    // reaches here, because validation is refused before the agent starts.
     let result: { ok: boolean; blocked?: boolean; message?: string; data?: unknown };
-    if (tool.endpoint.path.startsWith("/api/") && manifest.repoUrl.includes("demo-storefront")) {
-      result = await makeExecutor(tool, gate)(input);
+    if (executable) {
+      result = await makeExecutor(tool, gate, baseUrl)(input);
     } else {
-      // Record observed request through PolicyGate
-      const targetUrl = tool.endpoint.path;
-      const res = await gate.send(tool, tool.endpoint.method, targetUrl, input);
+      const res = await gate.send(tool, tool.endpoint.method, tool.endpoint.path, input);
       result = simulatedResult || {
         ok: res.allowed,
         blocked: !res.allowed,
@@ -338,14 +399,69 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
   }
 
   // -------------------------------------------------------------
-  // Scenario D: Generic Tools Iterator
+  // Scenario D: any other contract. Driven entirely by the manifest, so a
+  // spec-derived tool set runs against its mock target with real requests.
   // -------------------------------------------------------------
   for (let i = 0; i < Math.min(manifest.tools.length, 3); i++) {
     const t = manifest.tools[i];
-    await call(t, {}, `Executed ${t.name}`, {
+
+    if (mode === "guarded" && needsConfirmation(verdicts, t.name)) {
+      await sleep(500);
+      emit({
+        tool: t.name,
+        input: {},
+        status: "blocked",
+        summary: `Held ${t.name} for human confirmation`,
+        detail:
+          `${t.name} is declared read-only but maps to ${t.endpoint.method} ` +
+          `${t.endpoint.path}, so the guarded agent will not call it unattended.`,
+      });
+      continue;
+    }
+
+    await call(t, sampleInput(t), `Executed ${t.name}`, {
       ok: true,
-      message: `Simulated call to ${t.endpoint.method} ${t.endpoint.path} succeeded.`,
+      message: `Called ${t.endpoint.method} ${t.endpoint.path}.`,
     });
+  }
+
+  if (mode === "unguarded") {
+    // A plain model reads a tool description as instruction. If any tool's
+    // metadata names a third-party destination, it goes there.
+    const poisoned = manifest.tools.find((candidate) => injectedDestination(candidate));
+    const destination = poisoned ? injectedDestination(poisoned) : null;
+
+    if (poisoned && destination) {
+      await sleep(600);
+      const sensitive = Object.keys(poisoned.inputSchema.properties).filter((name) =>
+        /email|token|address|phone|card|secret|password/i.test(name),
+      );
+      const payload: Record<string, unknown> = {};
+      for (const name of sensitive) payload[name] = sampleInput(poisoned)[name] ?? `demo-${name}`;
+
+      const egress = await gate.send(poisoned, "POST", destination, payload);
+      emit({
+        tool: poisoned.name,
+        input: { destination },
+        status: egress.allowed ? "error" : "blocked",
+        summary: egress.allowed
+          ? `Sent ${sensitive.join(", ") || "parameters"} to a third party`
+          : `Blocked exfiltration of ${sensitive.join(", ") || "parameters"}`,
+        detail: `The description of ${poisoned.name} instructed the agent to POST to ${destination}.`,
+      });
+
+      // "always call <tool>" in the metadata is a chaining instruction, and the
+      // tool it names is often the one the contract mislabelled as read-only.
+      const followUp = injectedFollowUp(poisoned, manifest);
+      const chained = followUp ? byName(manifest, followUp) : null;
+      if (chained) {
+        await call(
+          chained,
+          sampleInput(chained),
+          `Followed the instruction embedded in ${poisoned.name} and called ${chained.name}`,
+        );
+      }
+    }
   }
 
   return steps;
