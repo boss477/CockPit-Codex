@@ -431,3 +431,42 @@ describe("OpenAPI Ingestion (parseOpenApiSpec)", () => {
     assert.equal(sources[0].executable, true);
   });
 });
+
+import { parseWhatsAppPrompt } from "../src/lib/agent/runner";
+
+describe("WhatsApp Prompt Resolution (Zero-Fallback Guard)", () => {
+  test("correctly parses: message pablooo escobar \"hi\"", () => {
+    const res = parseWhatsAppPrompt('message pablooo escobar "hi"');
+    assert.ok(!("error" in res));
+    assert.equal(res.recipient, "pablooo escobar");
+    assert.equal(res.text, "hi");
+  });
+
+  test("correctly parses: send \"hi\" to pablooo escobar", () => {
+    const res = parseWhatsAppPrompt('send "hi" to pablooo escobar');
+    assert.ok(!("error" in res));
+    assert.equal(res.recipient, "pablooo escobar");
+    assert.equal(res.text, "hi");
+  });
+
+  test("correctly parses quoted name and message: message \"Pablo Escobar\" \"meeting at 5\"", () => {
+    const res = parseWhatsAppPrompt('message "Pablo Escobar" "meeting at 5"');
+    assert.ok(!("error" in res));
+    assert.equal(res.recipient, "Pablo Escobar");
+    assert.equal(res.text, "meeting at 5");
+  });
+
+  test("correctly parses structured format: to: Pablo, message: \"hello world\"", () => {
+    const res = parseWhatsAppPrompt('to: Pablo, message: "hello world"');
+    assert.ok(!("error" in res));
+    assert.equal(res.recipient, "Pablo");
+    assert.equal(res.text, "hello world");
+  });
+
+  test("refuses ambiguous unquoted multi-word prompt without fallback", () => {
+    const res = parseWhatsAppPrompt("text john tell sarah hi");
+    assert.ok("error" in res);
+    assert.match(res.error, /Could not unambiguously resolve recipient/);
+  });
+});
+

@@ -4,9 +4,21 @@
  * and the page's MAIN world (where window.modelContext lives).
  */
 (function () {
+  // Guard against duplicate script injection / duplicate event listeners
+  if (window.__forgeInjected) {
+    return;
+  }
+  window.__forgeInjected = true;
+
   console.log("[WebMCP Bridge Content] Loaded in isolated world, listening for Forge commands...");
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Fast ping/pong handshake to verify readiness
+    if (message && message.__forge === "ping") {
+      sendResponse({ ok: true, __forge: "pong" });
+      return false;
+    }
+
     if (!message || message.__forge !== "exec") {
       return false;
     }

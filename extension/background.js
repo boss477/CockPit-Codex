@@ -90,6 +90,35 @@ async function resolveTargetTab(targetName) {
 }
 
 // -------------------------------------------------------------
+// EXTENSION LIFECYCLE: Connect existing tabs on install/reload
+// -------------------------------------------------------------
+chrome.runtime.onInstalled.addListener(async () => {
+  console.log("[WebMCP Background] Extension installed/reloaded. Connecting existing open tabs...");
+  for (const [target, patterns] of Object.entries(TARGET_URL_PATTERNS)) {
+    try {
+      const tabs = await chrome.tabs.query({ url: patterns });
+      for (const tab of tabs) {
+        if (tab.id && tab.url && !tab.url.startsWith("chrome://")) {
+          try {
+            if (chrome.scripting && chrome.scripting.executeScript) {
+              await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                files: ["content.js"],
+              });
+              console.log(`[WebMCP Background] Connected content.js to existing ${target} tab (${tab.id})`);
+            }
+          } catch (e) {
+            // Tab may not be scriptable or unloaded
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[WebMCP Background] Error scanning tabs for ${target}:`, err);
+    }
+  }
+});
+
+// -------------------------------------------------------------
 // EXTERNAL MESSAGE LISTENER (from Forge Dashboard)
 // -------------------------------------------------------------
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
@@ -97,7 +126,7 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
   if (message && (message.type === "ping" || message === "ping")) {
     sendResponse({
       ok: true,
-      version: "1.0.3",
+      version: "1.0.4",
       id: chrome.runtime.id,
     });
     return true;
@@ -131,27 +160,49 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         return;
       }
 
-      // 2c. Forward execution request to content script on target tab
-      chrome.tabs.sendMessage(
-        tab.id,
-        {
-          __forge: "exec",
-          tool,
-          args,
-        },
-        (tabReply) => {
-          if (chrome.runtime.lastError) {
-            console.warn("[WebMCP Background] tabs.sendMessage error:", chrome.runtime.lastError.message);
-            sendResponse({
-              ok: false,
-              code: "TAB_ERROR",
-              message: chrome.runtime.lastError.message,
-            });
-          } else {
-            sendResponse(tabReply);
+      // 2c. Dispatch to content script with ping handshake
+      const dispatchExec = () => {
+        chrome.tabs.sendMessage(
+          tab.id,
+          {
+            __forge: "exec",
+            tool,
+            args,
+          },
+          (tabReply) => {
+            if (chrome.runtime.lastError) {
+              console.warn("[WebMCP Background] tabs.sendMessage error:", chrome.runtime.lastError.message);
+              sendResponse({
+                ok: false,
+                code: "TAB_ERROR",
+                message: chrome.runtime.lastError.message,
+              });
+            } else {
+              sendResponse(tabReply);
+            }
+          }
+        );
+      };
+
+      // Fast ping handshake to verify content script readiness
+      chrome.tabs.sendMessage(tab.id, { __forge: "ping" }, async (pong) => {
+        const err = chrome.runtime.lastError;
+        if (err || !pong || !pong.ok) {
+          try {
+            if (chrome.scripting && chrome.scripting.executeScript) {
+              await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                files: ["content.js"],
+              });
+              setTimeout(dispatchExec, 150);
+              return;
+            }
+          } catch (injectErr) {
+            console.warn("[WebMCP Background] Auto-injection fallback failed:", injectErr);
           }
         }
-      );
+        dispatchExec();
+      });
     }).catch((err) => {
       sendResponse({
         ok: false,
