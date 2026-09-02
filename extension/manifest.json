@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "WebMCP Universal Bridge",
+  "version": "1.0.0",
+  "description": "Injects real WebMCP modelContext tools into WhatsApp Web, Motion, and any website for AI agent control.",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://web.whatsapp.com/*",
+    "https://app.usemotion.com/*",
+    "https://motion.so/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "WebMCP Universal Bridge"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.whatsapp.com/*",
+        "https://app.usemotion.com/*",
+        "https://motion.so/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "<all_urls>"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["bridge.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
