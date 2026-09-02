@@ -210,21 +210,40 @@ export function scan(actor: LogEntry["actor"] = "human") {
   return verdicts;
 }
 
-export async function validate(mode: AgentMode, actor: LogEntry["actor"] = "human") {
+export async function validate(
+  mode: AgentMode,
+  actor: LogEntry["actor"] = "human",
+  useExtension = false,
+  extensionTarget?: "whatsapp" | "motion"
+) {
   if (!state.manifest) return null;
   if (state.verdicts.length === 0) scan(actor);
 
   const plan = state.execution ?? state.manifest.execution ?? null;
+  const isLiveSite =
+    state.manifest.inputKind === "live" ||
+    /^https?:\/\/(?!github\.com)/i.test(state.manifest.repoUrl);
+  const resolvedTarget =
+    extensionTarget ||
+    (state.manifest.repoLabel.toLowerCase().includes("motion")
+      ? "motion"
+      : state.manifest.repoLabel.toLowerCase().includes("whatsapp")
+        ? "whatsapp"
+        : undefined);
 
-  // Tier 1. The scan already ran and is the deliverable here; refusing to
-  // execute against a third-party host is the correct outcome, not a failure.
-  if (plan && !plan.executable) {
-    log(
-      "system",
-      `VALIDATE disabled (${planBadge(plan)}): ${plan.reason}`,
-    );
-    set({ stage: "done" });
-    return null;
+  // Tier 1 with no extension:
+  // If not a live site or disabled, handle refusal. For live sites without extension,
+  // fall back to simulated mode as requested.
+  if (plan && !plan.executable && !useExtension) {
+    if (!isLiveSite) {
+      log(
+        "system",
+        `VALIDATE disabled (${planBadge(plan)}): ${plan.reason}`,
+      );
+      set({ stage: "done" });
+      return null;
+    }
+    log("system", "Extension not detected — running in simulated mode");
   }
 
   const task = getTaskForManifest(state.manifest);
@@ -239,11 +258,12 @@ export async function validate(mode: AgentMode, actor: LogEntry["actor"] = "huma
     stage: "validating",
     agentRun: { task, steps: [], status: "running", startedAt: new Date().toISOString() },
   });
-  log(
-    actor,
-    `Running the ${mode} agent against ${planBadge(plan)} ` +
-      `(${plan?.baseUrl || "this origin"}) for ${state.manifest.repoLabel}`,
-  );
+
+  const targetLabel = useExtension && resolvedTarget
+    ? `live browser tab (${resolvedTarget}) via WebMCP Extension Bridge`
+    : `${planBadge(plan)} (${plan?.baseUrl || "this origin"}) for ${state.manifest.repoLabel}`;
+
+  log(actor, `Running the ${mode} agent against ${targetLabel}`);
 
   await runAgent({
     manifest: state.manifest,
@@ -251,6 +271,11 @@ export async function validate(mode: AgentMode, actor: LogEntry["actor"] = "huma
     gate,
     mode,
     plan: plan ?? undefined,
+    useExtensionBridge: useExtension,
+    extensionTarget: resolvedTarget,
+    onLog: (logActor, message) => {
+      log(logActor, message);
+    },
     onStep: (step) => {
       steps.push(step);
       set({

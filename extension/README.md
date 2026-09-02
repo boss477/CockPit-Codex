@@ -1,6 +1,39 @@
 # WebMCP Universal Browser Extension
 
-This Chrome Extension injects native **WebMCP (`window.modelContext` / `document.modelContext`)** tools into third-party web apps (such as **WhatsApp Web** and **Motion**) so that AI agents can interact with them directly via the WebMCP protocol.
+This Chrome Extension injects native **WebMCP (`window.modelContext` / `document.modelContext`)** tools into third-party web apps (such as **WhatsApp Web** and **Motion**) and provides a **Live Two-Way Bridge** to the **WebMCP Forge** dashboard.
+
+---
+
+## 🔑 Stable Extension ID
+
+Thanks to the fixed public `key` declared in `manifest.json`, the extension ID remains completely stable across reloads and machine installations:
+
+```text
+jhehjnekadhhojkkmapkaeadiebegnla
+```
+
+---
+
+## ⚡ Architecture: Live Two-Way Bridge
+
+```text
+WebMCP Forge Dashboard (localhost / netlify)
+     │
+     ▼  chrome.runtime.sendMessage (externally_connectable)
+Background Service Worker (extension/background.js)
+     │  [Policy Gate: Allowlist & Injection Checks]
+     ▼  chrome.tabs.sendMessage (target tab: whatsapp | motion)
+Content Script (extension/content.js - ISOLATED world)
+     │
+     ▼  window.postMessage ({ __forge: "req", id, tool, args })
+Bridge Script (extension/bridge.js - MAIN world)
+     │
+     ▼  window.modelContext.executeTool(tool, args)
+Real DOM Manipulation (e.g. types message & hits send in WhatsApp Web)
+     │
+     ▲  window.postMessage ({ __forge: "res", id, payload })
+Dashboard Run Log (streams dispatched → policy verdict → executing → result)
+```
 
 ---
 
@@ -15,24 +48,22 @@ This Chrome Extension injects native **WebMCP (`window.modelContext` / `document
 4. Click **Load unpacked** (top left button).
 5. Select this directory:
    ```text
-   CockPit-Codex/extension
+   CockPit-Codex/CockPit-main/extension
    ```
-6. The extension **WebMCP Universal Bridge** is now installed and active!
+6. The extension **WebMCP Universal Bridge** is now installed and active with ID `jhehjnekadhhojkkmapkaeadiebegnla`!
 
 ---
 
-## 💬 How to Test with WhatsApp Web
+## 💬 Live Two-Way Dashboard Testing
 
-1. Open [https://web.whatsapp.com](https://web.whatsapp.com) in your browser.
-2. Select any contact/chat conversation.
-3. Open Developer Tools (`F12` or `Ctrl+Shift+I`) &rarr; **Console**.
-4. Type and run:
-   ```javascript
-   await window.modelContext.executeTool("send_message", { 
-     text: "Hello from WebMCP!" 
-   });
+1. Open **[https://web.whatsapp.com](https://web.whatsapp.com)** in a tab and select any chat conversation.
+2. In another tab, open **WebMCP Forge** (`http://localhost:3000` or your Netlify URL).
+3. The header will display:
+   ```text
+   Extension ● Connected
    ```
-5. You will see the text automatically typed into the WhatsApp message input box and sent!
+4. Analyze `https://web.whatsapp.com`, run the security scan, and click **Validate: guarded agent**.
+5. Watch the dashboard stream each step in real time while your WhatsApp Web tab actually types and sends the message!
 
 ---
 

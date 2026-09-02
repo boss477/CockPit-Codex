@@ -236,5 +236,47 @@
     registerMotionTools();
   }
 
+  // -------------------------------------------------------------
+  // TWO-WAY FORGE BRIDGE LISTENER
+  // -------------------------------------------------------------
+  window.addEventListener("message", async (event) => {
+    // Security: must originate from the same window
+    if (event.source !== window) return;
+
+    const data = event.data;
+    if (!data || data.__forge !== "req") return;
+
+    const { id, tool, args } = data;
+    if (!id || !tool) return;
+
+    console.log(`[WebMCP Bridge] Received execution request for "${tool}" (ID: ${id})`);
+
+    try {
+      const result = await instance.executeTool(tool, args || {});
+      window.postMessage(
+        {
+          __forge: "res",
+          id,
+          payload: result && typeof result === "object" ? result : { ok: true, result },
+        },
+        "*"
+      );
+    } catch (err) {
+      console.error(`[WebMCP Bridge] Error executing tool "${tool}":`, err);
+      window.postMessage(
+        {
+          __forge: "res",
+          id,
+          payload: {
+            ok: false,
+            code: "TOOL_ERROR",
+            message: err instanceof Error ? err.message : String(err),
+          },
+        },
+        "*"
+      );
+    }
+  });
+
   console.log(`%c[WebMCP Universal Bridge] Successfully loaded! ${instance.listTools().length} tools available.`, "color: #3fb950; font-weight: bold;");
 })();

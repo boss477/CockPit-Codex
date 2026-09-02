@@ -7,7 +7,8 @@ import { generateIntegration } from "@/lib/codegen";
 import { summarise } from "@/lib/security/scan";
 import { isWebMCPAvailable } from "@/lib/webmcp";
 import { resolveInput } from "@/lib/inputRouter";
-import type { InputKind } from "@/lib/types";
+import { detectExtension } from "@/lib/extensionBridge";
+import type { Finding, InputKind, ToolVerdict } from "@/lib/types";
 import { useForgeTools } from "./useForgeTools";
 import {
   ActivityLog,
@@ -112,9 +113,13 @@ export function Dashboard() {
   const [webmcp, setWebmcp] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  const [extensionDetected, setExtensionDetected] = useState<boolean | null>(null);
 
   useEffect(() => {
     setWebmcp(isWebMCPAvailable());
+    detectExtension().then((detected) => {
+      setExtensionDetected(detected);
+    });
   }, []);
 
   // Compute detected input kind based on current input text
@@ -130,9 +135,14 @@ export function Dashboard() {
   const scanned = state.verdicts.length > 0;
   const plan = state.execution ?? state.manifest?.execution ?? null;
   const isExecutable = useMemo(() => store.isManifestExecutable(state.manifest), [state.manifest]);
-  // Tier 1 is a legitimate outcome, not an error: scan runs, validate does not.
-  const validateDisabled = !scanned || (plan !== null && !plan.executable);
-  const validateReason = plan && !plan.executable ? plan.reason : undefined;
+
+  const isLiveSite =
+    state.manifest?.inputKind === "live" ||
+    (state.manifest?.repoUrl ? /^https?:\/\/(?!github\.com)/i.test(state.manifest.repoUrl) : false);
+  const canValidateLive = Boolean(extensionDetected && isLiveSite);
+  // Live sites can execute via Extension if detected or in simulated mode if not detected.
+  const validateDisabled = !scanned || (!isLiveSite && plan !== null && !plan.executable);
+  const validateReason = plan && !plan.executable && !isLiveSite ? plan.reason : undefined;
 
   const run = async (action: () => unknown | Promise<unknown>) => {
     setBusy(true);
@@ -175,6 +185,13 @@ export function Dashboard() {
         <div className="flex items-center gap-2">
           <span className={webmcp ? "pill pill-ok" : "pill pill-warn"}>
             {webmcp === null ? "WebMCP ○ Checking" : webmcp ? "WebMCP ● Available" : "WebMCP ○ Unavailable"}
+          </span>
+          <span className={extensionDetected ? "pill pill-ok" : "pill"}>
+            {extensionDetected === null
+              ? "Extension ○ Checking"
+              : extensionDetected
+                ? "Extension ● Connected"
+                : "Extension ○ Not detected"}
           </span>
           <a
             href="/webmcp-extension.zip"
@@ -299,7 +316,7 @@ export function Dashboard() {
               className="btn"
               disabled={busy || validateDisabled}
               title={validateReason}
-              onClick={() => run(() => store.validate("unguarded"))}
+              onClick={() => run(() => store.validate("unguarded", "human", canValidateLive))}
             >
               Validate: unguarded agent
             </button>
@@ -307,7 +324,7 @@ export function Dashboard() {
               className="btn"
               disabled={busy || validateDisabled}
               title={validateReason}
-              onClick={() => run(() => store.validate("guarded"))}
+              onClick={() => run(() => store.validate("guarded", "human", canValidateLive))}
             >
               Validate: guarded agent
             </button>

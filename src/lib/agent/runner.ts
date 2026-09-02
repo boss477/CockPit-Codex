@@ -1,6 +1,7 @@
 import type { AgentStep, ExecutionPlan, GeneratedTool, ToolManifest, ToolVerdict } from "../types";
 import { makeExecutor } from "../executor";
 import type { PolicyGate } from "../security/monitor";
+import { callRemoteTool } from "../extensionBridge";
 
 export type AgentMode = "unguarded" | "guarded";
 
@@ -15,7 +16,10 @@ export interface AgentOptions {
    * or a mock target generated from the same contract. Nothing is faked.
    */
   plan?: ExecutionPlan;
+  useExtensionBridge?: boolean;
+  extensionTarget?: "whatsapp" | "motion" | string;
   onStep: (step: AgentStep) => void;
+  onLog?: (actor: "agent" | "system" | "human", message: string) => void;
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -134,7 +138,17 @@ function injectedFollowUp(tool: GeneratedTool, manifest: ToolManifest): string |
  * The guarded agent refuses tools the scan blocked and ignores directives found in metadata.
  */
 export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
-  const { manifest, verdicts, gate, mode, plan, onStep } = options;
+  const {
+    manifest,
+    verdicts,
+    gate,
+    mode,
+    plan,
+    useExtensionBridge,
+    extensionTarget,
+    onStep,
+    onLog,
+  } = options;
   const steps: AgentStep[] = [];
   let index = 0;
 
@@ -162,6 +176,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
     await sleep(650);
 
     if (mode === "guarded" && isBlocked(verdicts, tool.name)) {
+      onLog?.("system", `Policy verdict: BLOCKED (Scan flagged ${tool.name} as malicious)`);
       emit({
         tool: tool.name,
         input,
@@ -172,10 +187,43 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
       return null;
     }
 
-    // Tier 2 and 3 both execute for real; only the target differs. Tier 1 never
-    // reaches here, because validation is refused before the agent starts.
     let result: { ok: boolean; blocked?: boolean; message?: string; data?: unknown };
-    if (executable) {
+
+    if (useExtensionBridge && extensionTarget) {
+      onLog?.("agent", `Dispatched ${tool.name} to extension bridge...`);
+      onLog?.("system", `Policy verdict: ${mode === "guarded" ? "VERIFIED (guarded filter passed)" : "UNGUARDED (passed to policy gate)"}`);
+      onLog?.("agent", `Executing in live ${extensionTarget} tab: ${tool.name}...`);
+
+      const remoteRes = await callRemoteTool(extensionTarget, tool.name, input);
+
+      if (remoteRes.ok) {
+        onLog?.("system", `Result: ${remoteRes.message || "Executed in live browser tab"}`);
+        result = {
+          ok: true,
+          message: String(remoteRes.message || "Executed in live browser tab"),
+          data: remoteRes,
+        };
+      } else if (remoteRes.code === "POLICY_BLOCKED") {
+        onLog?.("system", `Policy verdict: REFUSED by extension background policy (${remoteRes.rule})`);
+        result = {
+          ok: false,
+          blocked: true,
+          message: `Refused by extension policy gate: ${remoteRes.rule}`,
+        };
+      } else if (remoteRes.code === "NO_TARGET_TAB") {
+        onLog?.("system", `Result: ${remoteRes.message || "NO_TARGET_TAB"}`);
+        result = {
+          ok: false,
+          message: remoteRes.message || "No target tab found",
+        };
+      } else {
+        onLog?.("system", `Result: ${remoteRes.message || remoteRes.code}`);
+        result = {
+          ok: false,
+          message: remoteRes.message || `Bridge error: ${remoteRes.code}`,
+        };
+      }
+    } else if (executable) {
       result = await makeExecutor(tool, gate, baseUrl)(input);
     } else {
       const res = await gate.send(tool, tool.endpoint.method, tool.endpoint.path, input);
