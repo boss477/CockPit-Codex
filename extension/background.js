@@ -13,6 +13,7 @@ const TARGET_URL_PATTERNS = {
   whatsapp: ["https://web.whatsapp.com/*"],
   motion: ["https://app.usemotion.com/*", "https://motion.so/*"],
   youtube: ["https://www.youtube.com/*", "https://youtube.com/*"],
+  amazon: ["https://*.amazon.com/*", "https://*.amazon.in/*", "https://*.amazon.co.uk/*", "https://*.amazon.de/*", "https://*.amazon.ca/*", "https://*.amazon.co.jp/*"],
 };
 
 /**

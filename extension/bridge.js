@@ -375,6 +375,143 @@
     });
   }
 
+  // -------------------------------------------------------------
+  // AMAZON E-COMMERCE ADAPTER
+  // -------------------------------------------------------------
+  function registerAmazonTools() {
+    console.log("%c[WebMCP Bridge] Amazon detected! Registering e-commerce tools...", "color: #FF9900; font-weight: bold;");
+
+    instance.registerTool({
+      name: "search_amazon",
+      description: "Search for products on Amazon",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search keyword or product name" },
+        },
+        required: ["query"],
+      },
+      readOnlyHint: true,
+      execute: async ({ query }) => {
+        const searchBox =
+          document.querySelector("input#twotabsearchtextbox") ||
+          document.querySelector("input#nav-bb-search") ||
+          document.querySelector('input[name="field-keywords"]');
+
+        if (!searchBox) {
+          return { ok: false, error: "Amazon search bar not found." };
+        }
+
+        searchBox.focus();
+        searchBox.value = query;
+        searchBox.dispatchEvent(new Event("input", { bubbles: true }));
+
+        const submitBtn =
+          document.querySelector("input#nav-search-submit-button") ||
+          document.querySelector("#nav-search-submit-text") ||
+          searchBox.closest("form")?.querySelector('input[type="submit"]');
+
+        if (submitBtn) {
+          submitBtn.click();
+        } else {
+          searchBox.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Enter",
+              code: "Enter",
+              keyCode: 13,
+              which: 13,
+              bubbles: true,
+            })
+          );
+        }
+
+        return { ok: true, message: `Searched Amazon for "${query}"` };
+      },
+    });
+
+    instance.registerTool({
+      name: "get_product_details",
+      description: "Read product title, price, star rating, and stock availability from the active product page",
+      inputSchema: { type: "object" },
+      readOnlyHint: true,
+      execute: async () => {
+        const titleEl =
+          document.querySelector("#productTitle") ||
+          document.querySelector("h1#title") ||
+          document.querySelector("h1");
+        const priceEl =
+          document.querySelector(".a-price .a-offscreen") ||
+          document.querySelector("#price_inside_buybox") ||
+          document.querySelector("#corePrice_feature_div .a-offscreen") ||
+          document.querySelector(".apexPriceToPay .a-offscreen");
+        const ratingEl =
+          document.querySelector("#acrPopover") ||
+          document.querySelector('span[data-hook="rating-out-of-text"]') ||
+          document.querySelector(".a-icon-star");
+        const availEl =
+          document.querySelector("#availability") ||
+          document.querySelector("#availability-string");
+
+        return {
+          ok: true,
+          title: titleEl?.textContent?.trim() || document.title,
+          price: priceEl?.textContent?.trim() || "Price not listed",
+          rating: ratingEl?.textContent?.trim() || "No rating",
+          availability: availEl?.textContent?.trim() || "In Stock",
+        };
+      },
+    });
+
+    instance.registerTool({
+      name: "add_to_cart",
+      description: "Click the Add to Cart button on the active Amazon product page",
+      inputSchema: { type: "object" },
+      readOnlyHint: false,
+      execute: async () => {
+        const addBtn =
+          document.querySelector("input#add-to-cart-button") ||
+          document.querySelector("#add-to-cart-button") ||
+          document.querySelector('input[name="submit.add-to-cart"]') ||
+          document.querySelector("#buy-now-button");
+
+        if (!addBtn) {
+          return { ok: false, error: "Add to Cart button not found on this page. Make sure a product page is open." };
+        }
+
+        addBtn.click();
+        return { ok: true, message: "Clicked Add to Cart button successfully!" };
+      },
+    });
+
+    instance.registerTool({
+      name: "get_cart_count",
+      description: "Get the current number of items in the Amazon shopping cart",
+      inputSchema: { type: "object" },
+      readOnlyHint: true,
+      execute: async () => {
+        const cartCountEl = document.querySelector("#nav-cart-count");
+        const count = cartCountEl ? parseInt(cartCountEl.textContent?.trim() || "0", 10) : 0;
+        return { ok: true, count };
+      },
+    });
+
+    instance.registerTool({
+      name: "go_to_cart",
+      description: "Open the Amazon shopping cart page",
+      inputSchema: { type: "object" },
+      readOnlyHint: true,
+      execute: async () => {
+        const cartLink = document.querySelector("#nav-cart");
+        if (cartLink) {
+          cartLink.click();
+          return { ok: true, message: "Navigating to Amazon shopping cart..." };
+        }
+        window.location.href = "/gp/cart/view.html";
+        return { ok: true, message: "Navigating to /gp/cart/view.html" };
+      },
+    });
+  }
+
   // Check host
   const host = window.location.hostname;
   if (host.includes("whatsapp.com")) {
@@ -383,6 +520,8 @@
     registerMotionTools();
   } else if (host.includes("youtube.com")) {
     registerYouTubeTools();
+  } else if (host.includes("amazon.")) {
+    registerAmazonTools();
   }
 
   // -------------------------------------------------------------

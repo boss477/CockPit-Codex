@@ -213,6 +213,54 @@ const DOMAIN_ARCHETYPES: DomainArchetype[] = [
     ],
   },
   {
+    match: /amazon\./i,
+    stackName: "Amazon E-Commerce & Retail Marketplace",
+    tools: [
+      {
+        name: "search_amazon",
+        method: "GET",
+        path: "/s",
+        description: "Search for products and deals on Amazon.",
+        readOnly: true,
+        params: [
+          { name: "query", type: "string", in: "query", required: true, description: "Product keywords or brand." },
+        ],
+      },
+      {
+        name: "get_product_details",
+        method: "GET",
+        path: "/dp/details",
+        description: "Read product title, price, star rating, and stock availability.",
+        readOnly: true,
+        params: [],
+      },
+      {
+        name: "add_to_cart",
+        method: "POST",
+        path: "/gp/cart/add",
+        description: "Add active item to Amazon shopping cart.",
+        readOnly: false,
+        params: [],
+      },
+      {
+        name: "get_cart_count",
+        method: "GET",
+        path: "/gp/cart/count",
+        description: "Read current item count in Amazon cart.",
+        readOnly: true,
+        params: [],
+      },
+      {
+        name: "go_to_cart",
+        method: "GET",
+        path: "/gp/cart/view.html",
+        description: "Open the shopping cart checkout view.",
+        readOnly: true,
+        params: [],
+      },
+    ],
+  },
+  {
     match: /github\.com/i,
     stackName: "GitHub REST API",
     tools: [

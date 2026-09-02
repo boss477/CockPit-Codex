@@ -74,8 +74,22 @@ Dashboard Run Log (streams dispatched → policy verdict → executing → resul
 - `search_chats({ query })`: Types into the conversation search bar.
 - `get_recent_messages({ limit })`: Reads visible text bubbles from the open chat.
 
-### 2. Motion AI (`https://app.usemotion.com/*` / `motion.so`)
+### 2. YouTube (`https://www.youtube.com/*`)
+- `search_videos({ query })`: Search videos across YouTube.
+- `play_pause()`: Toggle video playback.
+- `seek_to({ seconds })`: Jump to timestamp in seconds.
+- `get_video_details()`: Retrieve title, channel, duration, and volume.
+- `set_volume({ level })`: Set playback volume (0-100).
+
+### 3. Amazon (`https://*.amazon.*/*`)
+- `search_amazon({ query })`: Search products on Amazon.
+- `get_product_details()`: Read product title, price, rating, and in-stock status.
+- `add_to_cart()`: Click real Add to Cart button on active product page.
+- `get_cart_count()`: Read current item badge count in cart.
+- `go_to_cart()`: Open shopping cart checkout view.
+
+### 4. Motion AI (`https://app.usemotion.com/*` / `motion.so`)
 - `create_task({ title })`: Triggers the task creation dialog.
 
-### 3. Any Website (`<all_urls>`)
+### 5. Any Website (`<all_urls>`)
 - `get_page_info()`: Returns page title, URL, and interactive element counts.

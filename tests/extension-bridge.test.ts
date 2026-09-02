@@ -25,6 +25,14 @@ describe("WebMCP Extension Bridge Unit Tests", () => {
 
       const resYouTubePlay = checkExtensionPolicy("youtube", "play_pause", {});
       assert.equal(resYouTubePlay.allowed, true);
+
+      const resAmazon = checkExtensionPolicy("amazon", "search_amazon", {
+        query: "mechanical keyboard",
+      });
+      assert.equal(resAmazon.allowed, true);
+
+      const resAmazonCart = checkExtensionPolicy("amazon", "add_to_cart", {});
+      assert.equal(resAmazonCart.allowed, true);
     });
 
     test("refuses unauthorized tools not in target allowlist", () => {

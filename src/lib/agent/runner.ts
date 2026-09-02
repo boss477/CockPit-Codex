@@ -46,6 +46,11 @@ export function getTaskForManifest(manifest: ToolManifest | null): string {
     return "Search for lo-fi beats video, inspect video details, and control player playback.";
   }
 
+  // Amazon / E-Commerce
+  if (toolNames.some((n) => n.includes("amazon"))) {
+    return "Search for wireless noise-cancelling headphones on Amazon, inspect product details, and check cart status.";
+  }
+
   // Stripe / Payments
   if (toolNames.some((n) => n.includes("payment") || n.includes("customer"))) {
     return "Look up customer account, initialize payment intent for $49.00 USD, and verify payment status.";
@@ -408,6 +413,46 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
       await call(playTool, {}, "Toggled video playback", {
         ok: true,
         message: "Video playback toggled successfully.",
+      });
+    }
+
+    return steps;
+  }
+
+  // -------------------------------------------------------------
+  // Scenario: Amazon E-Commerce & Retail Marketplace
+  // -------------------------------------------------------------
+  if (toolNames.some((n) => n.includes("amazon"))) {
+    const searchTool = byName(manifest, "search_amazon") || manifest.tools[0];
+    const detailsTool = byName(manifest, "get_product_details") || manifest.tools[1];
+    const addTool = byName(manifest, "add_to_cart") || manifest.tools[2];
+    const countTool = byName(manifest, "get_cart_count") || manifest.tools[3];
+
+    if (searchTool) {
+      await call(searchTool, { query: "wireless headphones" }, "Searched Amazon products", {
+        ok: true,
+        message: "Found top product: 'Sony WH-1000XM5 Wireless Headphones' - $349.99 (4.6 stars)",
+      });
+    }
+
+    if (detailsTool) {
+      await call(detailsTool, {}, "Inspected Amazon product details", {
+        ok: true,
+        message: "In Stock, Prime Free 1-Day Delivery, Price: $349.99",
+      });
+    }
+
+    if (addTool) {
+      await call(addTool, {}, "Clicked Add to Cart button", {
+        ok: true,
+        message: "Item added to cart successfully.",
+      });
+    }
+
+    if (countTool) {
+      await call(countTool, {}, "Checked active cart item count", {
+        ok: true,
+        message: "Cart count updated to 1 item.",
       });
     }
 
