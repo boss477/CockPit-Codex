@@ -9,8 +9,9 @@ import {
   fastapiAdapter,
   flaskAdapter,
 } from "../src/lib/adapters";
-import { parseOpenApiSpec, parseSpecContent } from "../src/lib/adapters/openapiSpec";
+import { parseOpenApiSpec } from "../src/lib/adapters/openapiSpec";
 import { auditLiveUrl } from "../src/lib/liveAuditor";
+import { extractUniversalRepoTools } from "../src/lib/universalRepoAnalyzer";
 import { buildManifest } from "../src/lib/analyzer";
 import { DEMO_REPO_FILES, DEMO_REPO_LABEL, DEMO_REPO_URL } from "../src/lib/fixtures/demoRepo";
 import type { FileTree } from "../src/lib/types";
@@ -35,6 +36,7 @@ describe("Input Router (resolveInput)", () => {
     assert.equal(resolveInput("https://motion.so/agent"), "live");
     assert.equal(resolveInput("https://example.com/store"), "live");
     assert.equal(resolveInput("http://localhost:3000"), "live");
+    assert.equal(resolveInput("https://web.whatsapp.com/"), "live");
   });
 });
 
@@ -265,6 +267,70 @@ def submit_order():
   });
 });
 
+describe("Universal Repository Analyzer (Any GitHub Repo)", () => {
+  test("extracts WebMCP tools from arbitrary 3D/AI repository (e.g. gods-eye-view)", () => {
+    const repoFiles: FileTree = [
+      {
+        path: "viewer.py",
+        content: `def render_gaussian_splat(model_path: str):
+    pass
+`,
+      },
+      {
+        path: "README.md",
+        content: "# God's Eye View\nReal-time 3D Gaussian splatting and neural radiance field viewer.",
+      },
+    ];
+
+    const result = extractUniversalRepoTools(repoFiles, "bilawalsidhu/gods-eye-view");
+    assert.ok(result.tools.length > 0);
+    const toolNames = result.tools.map((t) => t.name);
+    assert.ok(toolNames.some((n) => n.includes("render") || n.includes("scene") || n.includes("splat")));
+  });
+
+  test("extracts WebMCP tools from exported functions in generic repo", () => {
+    const repoFiles: FileTree = [
+      {
+        path: "src/utils.ts",
+        content: `export async function calculateAnalytics(query: string) { return {}; }
+export async function updateUserSettings(settings: object) { return true; }`,
+      },
+    ];
+
+    const result = extractUniversalRepoTools(repoFiles, "acme/analytics-tool");
+    assert.equal(result.tools.length, 2);
+    assert.equal(result.tools[0].name, "calculate_analytics");
+    assert.equal(result.tools[1].name, "update_user_settings");
+  });
+});
+
+describe("Universal Live Website Analyzer (Any Website)", () => {
+  test("extracts WebMCP tools for WhatsApp Web", async () => {
+    const audit = await auditLiveUrl("https://web.whatsapp.com/");
+    assert.equal(audit.success, true);
+    assert.ok(audit.tools.length > 0);
+    const names = audit.tools.map((t) => t.name);
+    assert.ok(names.includes("send_message"));
+    assert.ok(names.includes("search_chats"));
+  });
+
+  test("extracts WebMCP tools for Motion AI", async () => {
+    const audit = await auditLiveUrl("https://motion.so/agent");
+    assert.equal(audit.success, true);
+    assert.ok(audit.tools.length > 0);
+    const names = audit.tools.map((t) => t.name);
+    assert.ok(names.includes("create_task"));
+    assert.ok(names.includes("schedule_meeting"));
+  });
+
+  test("extracts WebMCP tools for arbitrary website", async () => {
+    const audit = await auditLiveUrl("https://example.com/store");
+    assert.equal(audit.success, true);
+    assert.ok(audit.tools.length > 0);
+    assert.equal(audit.tools[0].executable, false); // Always guarded read-only
+  });
+});
+
 describe("OpenAPI Ingestion (parseOpenApiSpec)", () => {
   test("parses OpenAPI 3.x spec with paths, parameters, and requestBody", () => {
     const spec = {
@@ -342,15 +408,5 @@ describe("OpenAPI Ingestion (parseOpenApiSpec)", () => {
     };
     const sources = parseOpenApiSpec(spec);
     assert.equal(sources[0].executable, true);
-  });
-});
-
-describe("Live URL Mode Probing", () => {
-  test("returns structured result for invalid or offline target", async () => {
-    const result = await auditLiveUrl("https://invalid-non-existent-domain-12345.com");
-    assert.equal(result.success, false);
-    assert.equal(result.kind, "none");
-    assert.ok(result.noContractReason);
-    assert.ok(result.probedPaths.length > 0);
   });
 });

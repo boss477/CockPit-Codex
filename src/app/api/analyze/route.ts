@@ -2,6 +2,7 @@ import { buildManifest, buildManifestFromSources } from "@/lib/analyzer";
 import { resolveInput } from "@/lib/inputRouter";
 import { parseSpecContent } from "@/lib/adapters/openapiSpec";
 import { auditLiveUrl } from "@/lib/liveAuditor";
+import { extractUniversalRepoTools } from "@/lib/universalRepoAnalyzer";
 import {
   DEMO_REPO_FILES,
   DEMO_REPO_LABEL,
@@ -65,20 +66,12 @@ function githubError(response: Response, owner: string, repo: string): Error {
   return new Error(`GitHub returned ${response.status} for ${owner}/${repo}.`);
 }
 
-function isCandidateRouteFile(path: string): boolean {
+function isCandidateFile(path: string): boolean {
   if (/(?:node_modules|\.git|dist|build|venv|\.venv|env|__pycache__|\.next|\.coverage)\//i.test(path)) {
     return false;
   }
-  if (/(?:^|\/)(?:openapi|swagger)\.(?:json|ya?ml)$/i.test(path)) return true;
-  if (/(?:^|\/)(?:public\/)?\.well-known\/openapi\.json$/i.test(path)) return true;
-  if (/(?:^|\/)app\/.*route\.[tj]sx?$/i.test(path)) return true;
-  if (/(?:^|\/)pages\/api\/.*?\.[tj]sx?$/i.test(path)) return true;
-  if (/(?:routes|api)\/.*?\.[tj]sx?$/i.test(path)) return true;
-  if (/(?:^|\/)(?:app|server|index|main|router)\.[tj]sx?$/i.test(path)) return true;
-  if (/\.py$/i.test(path) && !/test_|_test\.py|conftest\.py|setup\.py/i.test(path)) {
-    return true;
-  }
-  return false;
+  // All source files, configuration files, and documentation
+  return /\.(?:[tj]sx?|py|go|rs|rb|php|java|cpp|c|h|cs|json|ya?ml|md|html|toml)$/i.test(path);
 }
 
 async function fetchRepoFiles(owner: string, repo: string): Promise<RepoFile[]> {
@@ -103,7 +96,7 @@ async function fetchRepoFiles(owner: string, repo: string): Promise<RepoFile[]> 
   }
 
   const candidateFiles = entries
-    .filter((entry) => entry.type === "blob" && isCandidateRouteFile(entry.path))
+    .filter((entry) => entry.type === "blob" && isCandidateFile(entry.path))
     .slice(0, MAX_FILES);
 
   return Promise.all(
@@ -163,7 +156,7 @@ export async function POST(request: Request) {
   const kind = (requestedKind as "github" | "openapi" | "live") || resolveInput(target);
 
   // -------------------------------------------------------------
-  // 1. GitHub Repository Mode
+  // 1. GitHub Repository Mode (Any Repository)
   // -------------------------------------------------------------
   if (kind === "github") {
     const parsed = parseRepo(target);
@@ -179,30 +172,27 @@ export async function POST(request: Request) {
       if (files.length === 0) {
         return Response.json(
           {
-            error:
-              "No supported API route handlers found. Forge supports Next.js (App & Pages Router), " +
-              "Express, FastAPI, Flask, and OpenAPI/Swagger specs.",
+            error: "Repository appears empty or contains no inspectable source files.",
             inputKind: "github",
           },
           { status: 422 },
         );
       }
 
-      const manifest = buildManifest(
+      let manifest = buildManifest(
         files,
         target,
         `${parsed.owner}/${parsed.repo}`,
       );
 
+      // If standard framework adapters didn't find routes, run universal repository analyzer
       if (manifest.tools.length === 0) {
-        return Response.json(
-          {
-            error:
-              "Scanned repository files but found no route endpoints matching Next.js, Express, " +
-              "FastAPI, Flask, or OpenAPI specs.",
-            inputKind: "github",
-          },
-          { status: 422 },
+        const universal = extractUniversalRepoTools(files, `${parsed.owner}/${parsed.repo}`);
+        manifest = buildManifestFromSources(
+          universal.tools,
+          target,
+          `${parsed.owner}/${parsed.repo}`,
+          [universal.stackName],
         );
       }
 
@@ -250,7 +240,6 @@ export async function POST(request: Request) {
         );
       }
 
-      // Check execution base URL: user-provided executionBaseUrl takes precedence, else spec baseUrl
       const effectiveBaseUrl = executionBaseUrl !== undefined ? executionBaseUrl : rawSources[0]?.baseUrl ?? null;
       const isExec = isLocalOrPrivateHost(effectiveBaseUrl);
 
@@ -285,31 +274,12 @@ export async function POST(request: Request) {
   }
 
   // -------------------------------------------------------------
-  // 3. Live URL Mode — READ-ONLY AUDIT
+  // 3. Live URL Mode (Any Website / Web App)
   // -------------------------------------------------------------
   if (kind === "live") {
     try {
       const audit = await auditLiveUrl(target);
 
-      if (!audit.success || audit.tools.length === 0) {
-        // Return a structured "no machine-readable contract found" result, not a 500 error!
-        return Response.json({
-          manifest: null,
-          source: "live",
-          inputKind: "live",
-          noContractFound: true,
-          targetUrl: target,
-          audit,
-          message: audit.noContractReason,
-          suggestedActions: [
-            "Supply an explicit OpenAPI/Swagger URL (e.g. https://petstore.swagger.io/v2/swagger.json)",
-            "Enter a public GitHub repository containing route handlers",
-            "Try one of the sample security benchmarks below",
-          ],
-        });
-      }
-
-      // Determine execution safety: user override or default to read-only/false
       const effectiveBaseUrl = executionBaseUrl || null;
       const isExec = isLocalOrPrivateHost(effectiveBaseUrl);
 
@@ -322,15 +292,15 @@ export async function POST(request: Request) {
       const manifest = buildManifestFromSources(
         sources,
         target,
-        audit.rawHtmlTitle || new URL(target).hostname,
-        [audit.kind === "openapi" ? "Live OpenAPI Probe" : "Live WebMCP Extraction"],
+        audit.rawHtmlTitle || new URL(target.startsWith("http") ? target : `https://${target}`).hostname,
+        [audit.stackName || "Live Web Capability Analysis"],
       );
 
       return Response.json({
         manifest: { ...manifest, inputKind: "live" },
         source: "live",
         inputKind: "live",
-        matchedAdapters: [audit.kind === "openapi" ? "Live OpenAPI Probe" : "Live WebMCP Extraction"],
+        matchedAdapters: [audit.stackName || "Live Web Capability Analysis"],
         audit,
         executable: isExec,
       });

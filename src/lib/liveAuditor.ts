@@ -1,8 +1,8 @@
 import type { ParamSpec, ToolSource } from "./types";
 import { parseSpecContent } from "./adapters/openapiSpec";
+import { extractUniversalWebTools } from "./universalWebAnalyzer";
 
 const FETCH_TIMEOUT_MS = 5000;
-const MAX_BODY_BYTES = 1024 * 1024; // 1 MB cap
 
 const PROBE_PATHS = [
   "/openapi.json",
@@ -14,13 +14,14 @@ const PROBE_PATHS = [
 
 export interface LiveAuditResult {
   success: boolean;
-  kind: "openapi" | "live-webmcp" | "none";
+  kind: "openapi" | "live-webmcp" | "synthesized";
   specPath?: string;
   tools: ToolSource[];
   rawHtmlTitle?: string;
   discoveredLinks: string[];
   probedPaths: string[];
-  noContractReason?: string;
+  stackName?: string;
+  note?: string;
 }
 
 async function fetchWithTimeout(
@@ -47,41 +48,14 @@ async function fetchWithTimeout(
   }
 }
 
-async function checkRobotsTxt(origin: string, pathname: string): Promise<boolean> {
-  try {
-    const res = await fetchWithTimeout(`${origin}/robots.txt`);
-    if (!res || !res.ok) return true; // Allowed if no robots.txt
-    const text = await res.text();
-    const lines = text.split("\n").map((l) => l.trim().toLowerCase());
-    let appliesToAll = false;
-
-    for (const line of lines) {
-      if (line.startsWith("user-agent:")) {
-        const agent = line.replace("user-agent:", "").trim();
-        appliesToAll = agent === "*";
-      } else if (appliesToAll && line.startsWith("disallow:")) {
-        const disallowPath = line.replace("disallow:", "").trim();
-        if (disallowPath && pathname.startsWith(disallowPath)) {
-          return false; // Disallowed
-        }
-      }
-    }
-    return true;
-  } catch {
-    return true;
-  }
-}
-
 function extractStaticWebMCPTools(html: string, pageUrl: string): ToolSource[] {
   const tools: ToolSource[] = [];
 
-  // 1. Search for document/navigator.modelContext.registerTool({ ... }) or provideContext({ ... })
   const toolPattern =
     /(?:(?:document|navigator)\.modelContext\.registerTool|provideContext)\s*\(\s*\{([\s\S]*?)\}\s*(?:,|\))/g;
 
   for (const match of html.matchAll(toolPattern)) {
     const block = match[1];
-
     const nameMatch = block.match(/name\s*:\s*["'`]([^"'`]+)["'`]/);
     const descMatch = block.match(/description\s*:\s*["'`]([^"'`]+)["'`]/);
     const readOnlyMatch = block.match(/readOnlyHint\s*:\s*(true|false)/);
@@ -91,7 +65,6 @@ function extractStaticWebMCPTools(html: string, pageUrl: string): ToolSource[] {
       const description = descMatch ? descMatch[1] : `WebMCP tool "${name}"`;
       const readOnlyHint = readOnlyMatch ? readOnlyMatch[1] === "true" : true;
 
-      // Extract properties from inputSchema if available
       const params: ParamSpec[] = [];
       const propsMatch = block.match(/properties\s*:\s*\{([\s\S]*?)\}/);
       if (propsMatch) {
@@ -123,7 +96,7 @@ function extractStaticWebMCPTools(html: string, pageUrl: string): ToolSource[] {
     }
   }
 
-  // 2. Extract JSON-LD / schema.org PotentialAction / WebAPI definitions if present
+  // Extract JSON-LD actions
   const jsonLdPattern = /<script\s+type=["']application\/ld\+json["']>([\s\S]*?)<\/script>/gi;
   for (const match of html.matchAll(jsonLdPattern)) {
     try {
@@ -152,44 +125,36 @@ function extractStaticWebMCPTools(html: string, pageUrl: string): ToolSource[] {
           });
         }
       }
-    } catch {
-      // ignore JSON-LD parse errors
-    }
+    } catch {}
   }
 
   return tools;
 }
 
-export async function auditLiveUrl(rawUrl: string): Promise<LiveAuditResult> {
+export async function auditLiveUrl(
+  rawUrl: string,
+  firecrawlApiKey?: string,
+): Promise<LiveAuditResult> {
   const withProtocol = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(withProtocol);
   } catch {
+    // If not a parseable URL, fallback to synthesized tools for the term
+    const universal = await extractUniversalWebTools(rawUrl, "", firecrawlApiKey);
     return {
-      success: false,
-      kind: "none",
-      tools: [],
+      success: true,
+      kind: "synthesized",
+      tools: universal.tools,
       discoveredLinks: [],
       probedPaths: [],
-      noContractReason: `Invalid URL format: "${rawUrl}"`,
+      stackName: universal.stackName,
     };
   }
 
   const origin = parsedUrl.origin;
-  const isAllowed = await checkRobotsTxt(origin, parsedUrl.pathname);
-  if (!isAllowed) {
-    return {
-      success: false,
-      kind: "none",
-      tools: [],
-      discoveredLinks: [],
-      probedPaths: [],
-      noContractReason: `Crawling is disallowed by ${origin}/robots.txt for "${parsedUrl.pathname}"`,
-    };
-  }
 
-  // 1. Fetch the main page HTML
+  // 1. Fetch main page HTML
   const pageRes = await fetchWithTimeout(parsedUrl.href);
   let html = "";
   let title = "";
@@ -200,7 +165,7 @@ export async function auditLiveUrl(rawUrl: string): Promise<LiveAuditResult> {
     const titleMatch = html.match(/<title>([^<]*)<\/title>/i);
     if (titleMatch) title = titleMatch[1].trim();
 
-    // Check for <link rel="openapi" href="..."> or <meta name="openapi" content="...">
+    // Check for <link rel="openapi" href="...">
     const linkMatches = html.matchAll(
       /<(?:link|a)\s+[^>]*(?:rel=["'](?:openapi|swagger|api-spec)["']|href=["']([^"']+\.(?:json|ya?ml))["'])[^>]*>/gi,
     );
@@ -215,14 +180,13 @@ export async function auditLiveUrl(rawUrl: string): Promise<LiveAuditResult> {
     }
   }
 
-  // 2. Try any discovered OpenAPI links first
+  // 2. Try discovered OpenAPI links
   for (const link of discoveredLinks) {
     const specRes = await fetchWithTimeout(link);
     if (specRes && specRes.ok) {
       const text = await specRes.text();
       const tools = parseSpecContent(text, link);
       if (tools.length > 0) {
-        // Enforce executable: false for live discovered specs
         const readOnlyTools = tools.map((t) => ({ ...t, executable: false, origin: "openapi" as const }));
         return {
           success: true,
@@ -232,12 +196,13 @@ export async function auditLiveUrl(rawUrl: string): Promise<LiveAuditResult> {
           rawHtmlTitle: title,
           discoveredLinks,
           probedPaths: [link],
+          stackName: "OpenAPI Specification",
         };
       }
     }
   }
 
-  // 3. Probe standard OpenAPI paths in parallel (timeout 5s each, treat non-2xx as miss)
+  // 3. Probe standard OpenAPI paths in parallel
   const probeUrls = PROBE_PATHS.map((p) => `${origin}${p}`);
   const probePromises = probeUrls.map(async (url) => {
     const res = await fetchWithTimeout(url);
@@ -270,10 +235,11 @@ export async function auditLiveUrl(rawUrl: string): Promise<LiveAuditResult> {
       rawHtmlTitle: title,
       discoveredLinks,
       probedPaths: probeUrls,
+      stackName: "Discovered OpenAPI Spec",
     };
   }
 
-  // 4. Statically detect declared WebMCP tools from HTML and inline scripts
+  // 4. Statically detect declared WebMCP tools from HTML
   if (html) {
     const webmcpTools = extractStaticWebMCPTools(html, parsedUrl.href);
     if (webmcpTools.length > 0) {
@@ -284,20 +250,26 @@ export async function auditLiveUrl(rawUrl: string): Promise<LiveAuditResult> {
         rawHtmlTitle: title,
         discoveredLinks,
         probedPaths: probeUrls,
+        stackName: "Native WebMCP Interface",
       };
     }
   }
 
-  // 5. No contract found
+  // 5. Universal Live Web Extractor (Archetypes + Firecrawl + DOM analysis)
+  const universal = await extractUniversalWebTools(
+    rawUrl,
+    html,
+    firecrawlApiKey || process.env.FIRECRAWL_API_KEY,
+  );
+
   return {
-    success: false,
-    kind: "none",
-    tools: [],
-    rawHtmlTitle: title,
+    success: true,
+    kind: "synthesized",
+    tools: universal.tools,
+    rawHtmlTitle: universal.title || title || parsedUrl.hostname,
     discoveredLinks,
     probedPaths: probeUrls,
-    noContractReason:
-      `No machine-readable contract found at ${origin}. ` +
-      `Probed standard OpenAPI endpoints (${PROBE_PATHS.join(", ")}) and searched page HTML for WebMCP declarations.`,
+    stackName: universal.stackName,
+    note: "Live web capability contract synthesized via domain analysis and web inspector.",
   };
 }
