@@ -150,30 +150,17 @@ export function FindingCard({ finding }: { finding: Finding }) {
 
 export function ResultPanel({
   resultInfo,
-  onSelectSample,
 }: {
   resultInfo: ResultInfo;
-  onSelectSample?: (url: string) => void;
 }) {
   if (resultInfo.noContract) {
     return (
       <div className="panel p-4 space-y-3" style={{ borderColor: "var(--warn)" }}>
         <div className="flex items-center gap-2">
           <span className="pill pill-warn">Live Audit</span>
-          <h3 className="font-semibold text-sm">No Machine-Readable Contract Found</h3>
+          <h3 className="font-semibold text-sm">Synthesized WebMCP Capabilities</h3>
         </div>
         <p className="subtle text-xs">{resultInfo.message}</p>
-
-        {resultInfo.probedPaths && resultInfo.probedPaths.length > 0 && (
-          <div className="space-y-1">
-            <div className="text-xs font-semibold subtle uppercase">Probed Endpoints</div>
-            <ul className="mono text-xs subtle space-y-0.5">
-              {resultInfo.probedPaths.map((p) => (
-                <li key={p}>• {p} (404 / no spec)</li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {resultInfo.suggestedActions && resultInfo.suggestedActions.length > 0 && (
           <div className="space-y-1 pt-2 border-t" style={{ borderColor: "var(--line)" }}>
@@ -195,11 +182,11 @@ export function ResultPanel({
     return (
       <div className="panel p-3 text-xs space-y-1.5" style={{ borderColor: "var(--ok)" }}>
         <div className="flex items-center justify-between">
-          <span className="subtle uppercase font-semibold">Detected Input & Stack</span>
-          <span className="pill pill-ok">Valid Contract</span>
+          <span className="subtle uppercase font-semibold">Target Architecture & Adapters</span>
+          <span className="pill pill-ok">Ready</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="subtle">Matched Adapters:</span>
+          <span className="subtle">Extracted Interface:</span>
           {resultInfo.matchedAdapters.map((a) => (
             <span key={a} className="mono pill pill-idle">
               {a}
@@ -215,95 +202,150 @@ export function ResultPanel({
 
 export function AgentPanel({
   run,
-  scanOnly = false,
 }: {
   run: AgentRun | null;
-  scanOnly?: boolean;
 }) {
-  if (scanOnly) {
+  if (!run) {
     return (
-      <div className="p-4 rounded border border-dashed text-center space-y-2" style={{ borderColor: "var(--line)" }}>
-        <span className="pill pill-warn">Scan-Only Target</span>
-        <p className="subtle text-xs">
-          Live execution is disabled because this is an external or read-only target with no local test server configured.
-          The static security scan has analyzed all tool descriptions and metadata.
+      <div className="space-y-2">
+        <p className="subtle text-sm">
+          No agent run yet. Click <strong>Validate: unguarded agent</strong> to see an AI agent blindly follow tool descriptions, or <strong>Validate: guarded agent</strong> to see PolicyGate protect the session.
         </p>
       </div>
     );
   }
 
-  if (!run) {
-    return (
-      <p className="subtle text-sm">
-        No agent run yet. The unguarded agent treats tool descriptions as instructions;
-        the guarded agent refuses tools the scan blocked.
-      </p>
-    );
-  }
+  const isRunning = run.status === "running";
 
   return (
-    <div className="space-y-2">
-      <div className="subtle text-xs">Task: {run.task}</div>
-      {run.steps.map((step) => {
-        const colour =
-          step.status === "blocked"
-            ? "var(--bad)"
-            : step.status === "error"
-              ? "var(--warn)"
-              : "var(--ok)";
-        const glyph = step.status === "blocked" ? "✕" : step.status === "error" ? "!" : "✓";
-        return (
-          <div key={step.index} className="flex gap-3 text-sm flash">
-            <span className="mono" style={{ color: colour }}>
-              {glyph}
-            </span>
-            <div className="min-w-0">
-              <span className="mono">{step.tool}</span>
-              <span className="subtle"> — {step.summary}</span>
-              {step.detail && <div className="subtle text-xs mt-0.5">{step.detail}</div>}
-            </div>
+    <div className="space-y-3">
+      {/* Dynamic Task Header */}
+      <div className="p-2.5 rounded border" style={{ background: "var(--bg)", borderColor: "var(--line)" }}>
+        <div className="text-xs font-semibold subtle uppercase mb-1">Agent Scenario Goal</div>
+        <div className="text-xs italic" style={{ color: "var(--text)" }}>
+          &ldquo;{run.task}&rdquo;
+        </div>
+      </div>
+
+      {/* Live Status Banner */}
+      {isRunning ? (
+        <div
+          className="flex items-center justify-between p-2 rounded border text-xs mono"
+          style={{ background: "var(--panel)", borderColor: "var(--accent)" }}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className="inline-block w-2 h-2 rounded-full animate-ping"
+              style={{ background: "var(--accent)" }}
+            />
+            <span style={{ color: "var(--accent)" }}>Agent reasoning & executing step {run.steps.length + 1}...</span>
           </div>
-        );
-      })}
-      {run.status !== "running" && (
-        <div className="pt-2 text-sm" style={{ color: run.status === "passed" ? "var(--ok)" : "var(--bad)" }}>
-          Run {run.status}
+          <span className="pill pill-idle text-[10px]">Active</span>
+        </div>
+      ) : (
+        <div
+          className="flex items-center justify-between p-2 rounded border text-xs"
+          style={{
+            background: "var(--panel)",
+            borderColor: run.status === "passed" ? "var(--ok)" : "var(--bad)",
+          }}
+        >
+          <span style={{ color: run.status === "passed" ? "var(--ok)" : "var(--bad)" }}>
+            {run.status === "passed" ? "✓ Validation passed (Safety policy enforced)" : "⚠️ Policy violations captured"}
+          </span>
+          <span className={run.status === "passed" ? "pill pill-ok" : "pill pill-bad"}>
+            {run.status.toUpperCase()}
+          </span>
         </div>
       )}
+
+      {/* Steps List */}
+      <div className="space-y-2">
+        {run.steps.map((step) => {
+          const isBlocked = step.status === "blocked";
+          const isError = step.status === "error";
+          const colour = isBlocked ? "var(--bad)" : isError ? "var(--warn)" : "var(--ok)";
+          const glyph = isBlocked ? "✕" : isError ? "!" : "✓";
+
+          return (
+            <div
+              key={step.index}
+              className="p-2.5 rounded border flash space-y-1"
+              style={{
+                borderColor: isBlocked ? "var(--bad)" : "var(--line)",
+                background: "var(--panel)",
+              }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="mono font-bold" style={{ color: colour }}>
+                    {glyph}
+                  </span>
+                  <span className="mono text-xs font-semibold">{step.tool}</span>
+                </div>
+                <span
+                  className={
+                    isBlocked ? "pill pill-bad text-[10px]" : isError ? "pill pill-warn text-[10px]" : "pill pill-ok text-[10px]"
+                  }
+                >
+                  {step.status}
+                </span>
+              </div>
+
+              <div className="text-xs subtle pl-4">{step.summary}</div>
+
+              {step.detail && (
+                <div className="text-xs pl-4 font-mono text-[11px]" style={{ color: "var(--muted)" }}>
+                  ↳ {step.detail}
+                </div>
+              )}
+
+              {step.input && Object.keys(step.input).length > 0 && (
+                <div className="mt-1 pt-1 border-t text-[11px] mono text-xs subtle" style={{ borderColor: "var(--line)" }}>
+                  <span className="text-[10px] uppercase font-semibold text-[var(--muted)]">Input: </span>
+                  {JSON.stringify(step.input)}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 export function RequestLog({
   requests,
-  scanOnly = false,
 }: {
   requests: ObservedRequest[];
-  scanOnly?: boolean;
 }) {
-  if (scanOnly) {
-    return (
-      <div className="p-3 rounded border border-dashed" style={{ borderColor: "var(--line)" }}>
-        <p className="subtle text-xs">
-          PolicyGate is standing by. In scan-only mode, network calls are not dispatched against production endpoints.
-        </p>
-      </div>
-    );
-  }
-
   if (requests.length === 0) {
-    return <p className="subtle text-sm">Nothing observed yet.</p>;
+    return <p className="subtle text-sm">No network requests observed yet. Run agent validation to monitor live PolicyGate network interception.</p>;
   }
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {requests.map((request, i) => (
-        <div key={i} className="mono text-xs flex gap-2">
-          <span style={{ color: request.crossOrigin ? "var(--bad)" : "var(--muted)" }}>
-            {request.crossOrigin ? "BLOCKED" : "  sent "}
+        <div
+          key={i}
+          className="mono text-xs p-2 rounded border flex items-center justify-between gap-2"
+          style={{
+            borderColor: request.crossOrigin ? "var(--bad)" : "var(--line)",
+            background: "var(--panel)",
+          }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className={request.crossOrigin ? "pill pill-bad text-[10px]" : "pill pill-ok text-[10px]"}
+            >
+              {request.crossOrigin ? "BLOCKED" : "SENT"}
+            </span>
+            <span className="subtle font-semibold">{request.method}</span>
+            <span className="truncate text-xs">{request.url}</span>
+          </div>
+          <span className="text-[10px] subtle shrink-0">
+            {new Date(request.at).toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })}
           </span>
-          <span className="subtle">{request.method}</span>
-          <span className="truncate">{request.url}</span>
         </div>
       ))}
     </div>

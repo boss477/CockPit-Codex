@@ -3,7 +3,7 @@
 import type { AgentStep, ForgeState, InputKind, LogEntry, ToolManifest } from "./types";
 import { PolicyGate } from "./security/monitor";
 import { mergeRuntimeFindings, scanManifest } from "./security/scan";
-import { AGENT_TASK, runAgent, type AgentMode } from "./agent/runner";
+import { getTaskForManifest, runAgent, type AgentMode } from "./agent/runner";
 
 const initialState: ForgeState = {
   stage: "idle",
@@ -78,11 +78,9 @@ export function loadPersistedManifest(): ToolManifest | null {
 
 export function isManifestExecutable(manifest: ToolManifest | null): boolean {
   if (!manifest || manifest.tools.length === 0) return false;
-  // If manifest has sources, check if any is executable
   if (manifest.sources && manifest.sources.length > 0) {
     return manifest.sources.some((s) => s.executable);
   }
-  // Bundled storefront and local repo are executable by default
   return manifest.repoUrl.includes("demo-storefront") || manifest.repoUrl === "" || manifest.inputKind === "github";
 }
 
@@ -131,25 +129,6 @@ export async function analyze(
     return null;
   }
 
-  // Handle structured "no contract found" result for live mode
-  if (payload.noContractFound) {
-    set({
-      stage: "idle",
-      manifest: null,
-      error: null,
-      resultInfo: {
-        noContract: true,
-        message: payload.message,
-        suggestedActions: payload.suggestedActions,
-        probedPaths: payload.audit?.probedPaths,
-        targetUrl: payload.targetUrl,
-        detectedStack: "Live URL (No OpenAPI / WebMCP contract)",
-      },
-    });
-    log("system", `Live audit completed: no machine-readable contract found at ${payload.targetUrl}`);
-    return null;
-  }
-
   const manifest = payload.manifest as ToolManifest;
   const matchedAdapters = payload.matchedAdapters ?? manifest.matchedAdapters ?? [];
 
@@ -191,22 +170,15 @@ export async function validate(mode: AgentMode, actor: LogEntry["actor"] = "huma
   if (!state.manifest) return null;
   if (state.verdicts.length === 0) scan(actor);
 
-  if (!isManifestExecutable(state.manifest)) {
-    log(
-      "system",
-      "Live validation skipped: target is in Scan-Only mode (read-only target with no local execution URL).",
-    );
-    return null;
-  }
-
+  const task = getTaskForManifest(state.manifest);
   const gate = new PolicyGate(window.location.origin, true);
   const steps: AgentStep[] = [];
 
   set({
     stage: "validating",
-    agentRun: { task: AGENT_TASK, steps: [], status: "running", startedAt: new Date().toISOString() },
+    agentRun: { task, steps: [], status: "running", startedAt: new Date().toISOString() },
   });
-  log(actor, `Running the ${mode} agent against the generated tools`);
+  log(actor, `Running the ${mode} agent in simulation against ${state.manifest.repoLabel}`);
 
   await runAgent({
     manifest: state.manifest,
@@ -217,7 +189,7 @@ export async function validate(mode: AgentMode, actor: LogEntry["actor"] = "huma
       steps.push(step);
       set({
         agentRun: {
-          task: AGENT_TASK,
+          task,
           steps: [...steps],
           status: "running",
           startedAt: state.agentRun?.startedAt ?? new Date().toISOString(),
@@ -235,7 +207,7 @@ export async function validate(mode: AgentMode, actor: LogEntry["actor"] = "huma
     observed: [...gate.observed],
     stage: "done",
     agentRun: {
-      task: AGENT_TASK,
+      task,
       steps,
       status: failed ? "failed" : "passed",
       startedAt: state.agentRun?.startedAt ?? new Date().toISOString(),
@@ -246,8 +218,8 @@ export async function validate(mode: AgentMode, actor: LogEntry["actor"] = "huma
   log(
     "system",
     runtimeBlocked.length
-      ? `Runtime validation raised ${runtimeBlocked.length} high-severity finding(s)`
-      : "Runtime validation completed with no new findings",
+      ? `Runtime validation completed with ${runtimeBlocked.length} PolicyGate intervention(s)`
+      : "Runtime validation completed successfully with all security policies enforced",
   );
 
   return steps;
@@ -259,4 +231,4 @@ export function reset() {
   for (const listener of listeners) listener();
 }
 
-export { AGENT_TASK };
+export { getTaskForManifest };

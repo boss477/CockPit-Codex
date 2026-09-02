@@ -249,16 +249,14 @@ export function Dashboard() {
             </button>
             <button
               className="btn"
-              disabled={busy || !scanned || !isExecutable}
-              title={!isExecutable ? "Disabled in scan-only mode: no local execution target" : undefined}
+              disabled={busy || !scanned}
               onClick={() => run(() => store.validate("unguarded"))}
             >
               Validate: unguarded agent
             </button>
             <button
               className="btn"
-              disabled={busy || !scanned || !isExecutable}
-              title={!isExecutable ? "Disabled in scan-only mode: no local execution target" : undefined}
+              disabled={busy || !scanned}
               onClick={() => run(() => store.validate("guarded"))}
             >
               Validate: guarded agent
@@ -293,13 +291,13 @@ export function Dashboard() {
 
         <PipelineRail stage={state.stage} />
 
-        {/* Structured Result Panel for Analyzed Stack / No Contract */}
+        {/* Structured Result Panel for Analyzed Stack */}
         {state.resultInfo && <ResultPanel resultInfo={state.resultInfo} />}
 
-        {/* Validate task description */}
-        {scanned && !state.agentRun && isExecutable && (
+        {/* Validate scenario description */}
+        {scanned && !state.agentRun && (
           <p className="subtle text-xs">
-            Both agents run the same task: <em>{store.AGENT_TASK}</em>
+            Scenario: <em>&ldquo;{store.getTaskForManifest(state.manifest)}&rdquo;</em>
           </p>
         )}
 
@@ -363,11 +361,11 @@ export function Dashboard() {
             title="Agent validation"
             hint="The same task, run two ways, against the tools that were just generated."
           >
-            <AgentPanel run={state.agentRun} scanOnly={hasManifest && !isExecutable} />
+            <AgentPanel run={state.agentRun} />
           </Section>
 
           <Section title="Observed requests" hint="Every network call the generated tools made, and what the gate did with it.">
-            <RequestLog requests={state.observed} scanOnly={hasManifest && !isExecutable} />
+            <RequestLog requests={state.observed} />
           </Section>
         </div>
 
