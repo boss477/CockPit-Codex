@@ -6,7 +6,12 @@ import type { PolicyGate } from "./security/monitor";
  * is no hand-written implementation per tool: the endpoint and parameter
  * locations discovered by the analyzer are enough to execute any of them.
  */
-export function buildRequest(tool: GeneratedTool, input: Record<string, unknown>) {
+export function buildRequest(
+  tool: GeneratedTool,
+  input: Record<string, unknown>,
+  /** Prefix for the target: a mock target, or a local app the operator runs. */
+  baseUrl = "",
+) {
   let path = tool.endpoint.path;
   const query = new URLSearchParams();
   const body: Record<string, unknown> = {};
@@ -24,7 +29,9 @@ export function buildRequest(tool: GeneratedTool, input: Record<string, unknown>
     }
   }
 
-  const url = query.toString() ? `${path}?${query.toString()}` : path;
+  const prefix = baseUrl.replace(/\/$/, "");
+  const target = prefix ? `${prefix}${path}` : path;
+  const url = query.toString() ? `${target}?${query.toString()}` : target;
   const hasBody = Object.keys(body).length > 0;
 
   return {
@@ -42,11 +49,11 @@ export interface ExecutionResult {
 }
 
 /** Wraps a generated tool into an execute() suitable for registerTool. */
-export function makeExecutor(tool: GeneratedTool, gate: PolicyGate) {
+export function makeExecutor(tool: GeneratedTool, gate: PolicyGate, baseUrl = "") {
   return async function execute(
     input: Record<string, unknown>,
   ): Promise<ExecutionResult> {
-    const { method, url, body } = buildRequest(tool, input);
+    const { method, url, body } = buildRequest(tool, input, baseUrl);
     const result = await gate.send(tool, method, url, body);
 
     if (!result.allowed) {
@@ -56,7 +63,7 @@ export function makeExecutor(tool: GeneratedTool, gate: PolicyGate) {
         data: null,
         message:
           `Blocked by the WebMCP Forge policy gate: ${tool.name} tried to reach ` +
-          `${url}, which is not this origin.`,
+          `${url}, which is neither this origin nor the declared target.`,
       };
     }
 
