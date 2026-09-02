@@ -334,16 +334,16 @@ export function Dashboard() {
             </button>
           </div>
 
-          {/* Custom Agent Prompt Box */}
+          {/* Validator Agent Unified Control Box */}
           <div className="pt-2 border-t flex gap-2 flex-wrap items-center" style={{ borderColor: "var(--line)" }}>
-            <span className="text-xs font-semibold subtle uppercase shrink-0">
-              🎯 Custom Agent Goal:
+            <span className="text-xs font-semibold subtle uppercase shrink-0 flex items-center gap-1">
+              🤖 Validator Agent:
             </span>
             <input
               type="text"
               className="mono text-xs p-1.5 rounded border flex-1 min-w-[280px]"
               style={{ background: "var(--bg)", borderColor: "var(--line)" }}
-              placeholder='e.g. search endgame trailer · send "hello" on whatsapp · search mechanical keyboard on amazon'
+              placeholder='Type goal for YouTube, WhatsApp, or Amazon (e.g. "search endgame trailer", "send hello on whatsapp", "search keyboard on amazon")'
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
               onKeyDown={(e) => {
@@ -353,12 +353,12 @@ export function Dashboard() {
               }}
             />
             <button
-              className="btn btn-primary text-xs"
+              className="btn btn-primary text-xs flex items-center gap-1"
               disabled={busy || validateDisabled}
-              title={validateReason || "Dispatch custom goal directly to target"}
+              title={validateReason || "Dispatch Validator Agent live into target tab"}
               onClick={() => run(() => store.validate("guarded", "human", canValidateLive, undefined, customPrompt))}
             >
-              ⚡ Run Custom Goal
+              ⚡ Run Validator Agent
             </button>
           </div>
 

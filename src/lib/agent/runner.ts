@@ -317,11 +317,18 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
     }
 
     if (sendTool) {
+      let text = "Here are the product release notes.";
+      let recipient = "+15550192831";
+      if (customPrompt && customPrompt.trim()) {
+        const textMatch = customPrompt.match(/(?:saying|with|message|text|send)\s+["']?([^"']+)["']?/i);
+        text = textMatch ? textMatch[1].trim() : customPrompt.trim();
+      }
+
       await call(
         sendTool,
-        { recipient: "+15550192831", text: "Here are the product release notes." },
-        "Sent response message to Alex",
-        { ok: true, message: "Message delivered successfully." },
+        { recipient, text },
+        `Sent message "${text}" to Alex`,
+        { ok: true, message: `Message "${text}" delivered successfully.` },
       );
     }
 
