@@ -4,7 +4,7 @@
 > for an agent to use.
 
 **Deadline:** Thu 3 Sep 2026, 1:00 PM PDT (= Fri 4 Sep, 01:30 IST)
-**Updated:** Tue 1 Sep, 00:55 IST — **~72 hours left**
+**Updated:** Wed 2 Sep — **the mock-target tier is in; what is left is deploy, film, submit**
 
 ---
 
@@ -34,9 +34,9 @@ by the real analyzer in this repo, and both are caught downstream.
 
 ## Status — the product is built
 
-The whole pipeline runs. `npm test` 15/15, `tsc --noEmit` clean, `next build`
-compiles 10 routes, and `npx tsx scripts/verify-full-flow.ts` passes end to end
-against the dev server:
+The whole pipeline runs. `npm test` 51/51, `tsc --noEmit` clean, `next build`
+compiles 13 routes, and both verification scripts pass end to end against the
+dev server (`scripts/verify-full-flow.ts`, `scripts/verify-mock-target.ts`):
 
 ```
 5 capabilities discovered, 5 tools generated
@@ -49,9 +49,39 @@ UNGUARDED    ✕ blocked exfiltration to analytics-partner.example
              -> checkout escalates to HIGH on observed mutation
 ```
 
+And the mock tier, against a target generated from a contract rather than a
+third party's server (`npx tsx scripts/verify-mock-target.ts`):
+
+```
+TIER         mock-target · executable=true · baseUrl=/api/mock/mnmwlrs
+MOCK         3 operations · 200 valid / 422 missing param / 422 bad type / 404 unknown op
+STATIC SCAN  2 verified, 1 blocked
+             get_reservation  BLOCKED  metadata-injection + sensitive-data-egress
+             confirm_booking  MEDIUM   declared read-only, mapped to POST
+GUARDED      search_rooms ✓ · refused get_reservation · held confirm_booking
+             -> no runtime findings, target untouched
+UNGUARDED    followed the injection · ✕ blocked POST to collector.analytics-partner.example
+             ✓ chained into confirm_booking -> escalates to HIGH on observed mutation
+```
+
 Everything in `src/` is done: analyzer, GitHub ingestion, three security checks,
 policy gate, executor, both agents, codegen, dashboard, storefront, the Forge's
-six control tools, WebMCP diagnostics, and the `/webmcp-test` smoke page.
+seven control tools, WebMCP diagnostics, the `/webmcp-test` smoke page, and the
+three-tier execution model with its generated mock target.
+
+**The three tiers** (`src/lib/executionPlan.ts`) answer the question the demo
+used to dodge — what do we actually execute against?
+
+- tier 1 `scan-only`: a third-party live site. Scanned, never called. VALIDATE is
+  disabled and the reason is printed on screen.
+- tier 2 `mock-target`: a contract becomes a running mock, served at
+  `/api/mock/<id>` or by your own Prism on `:4010`. Real HTTP, real gate
+  interception, requests validated against the declared schemas.
+- tier 3 `local-app`: the bundled storefront, or a localhost app you point at.
+
+The bundled `Concierge Bookings API` contract (`src/lib/fixtures/demoSpec.ts`,
+served at `/api/demo-spec`) carries the planted attack — the thing no real
+service will do for you on demand.
 
 **Nothing product-shaped is blocking submission. What is left is proving it in a
 real browser, deploying it, and filming it.**
@@ -84,6 +114,17 @@ real browser, deploying it, and filming it.**
 5. **Video.** Under 3 minutes, public on YouTube, with audio.
 6. **Devpost submission.** Not started. Copy is written in `SUBMISSION.md`.
 
+### Done since this plan was written
+
+- **The mock-target tier.** Was the gap: a spec or a repo we could not run had
+  nowhere to execute, so validation was theatre. Now every input except a
+  third-party live site has a real target, and the one that does not says so.
+- **`npm run mock`** wraps Prism for an external mock on `:4010`.
+- **Seventh control tool** `forge_get_execution_plan`, so an agent can ask which
+  tier it is in before trying to validate.
+- **Guarded agent holds read-only mismatches** on any contract, not just the
+  storefront scenario.
+
 ### Should do
 
 7. README needs the live URL and screenshots.
@@ -99,7 +140,11 @@ real browser, deploying it, and filming it.**
 
 - Next.js App Router `app/**/route.ts` only, matched by regex not AST. Pages
   Router, Express, FastAPI, Django yield nothing.
-- Storefront cart is in-memory and resets on a cold start.
+- The built-in mock answers from declared parameter types and contract examples.
+  It is a target to exercise tools against, not a replica of the service. Say
+  this out loud in the video — "we tested against a generated mock" is a
+  respectable answer, and it is how every API integration gets tested.
+- Storefront cart and mock targets are in-memory and reset on a cold start.
 - Three checks, not a scanner. No dependency scanning, auth, or SSRF.
 - No LLM anywhere. Deliberate: no API key in the judge's path, deterministic
   runs. Say it out loud in the video — "no model in the loop" is a feature for a
@@ -140,7 +185,12 @@ real browser, deploying it, and filming it.**
 
 ---
 
-## The 2:30 video, beat by beat
+## The video, beat by beat
+
+> The current beat sheet lives in [SUBMISSION.md](SUBMISSION.md) — it includes
+> the mock-target beat and is timed to 2:40. The version below is the original.
+
+## The 2:30 video, beat by beat (superseded)
 
 | Time | Beat |
 |---|---|
@@ -163,8 +213,11 @@ auth · multi-agent architecture · a database · Firecrawl.
 
 ```
 npm install
-npm run dev                          # http://localhost:3000
-npm test                             # 15 tests
-npx tsx scripts/verify-full-flow.ts  # end-to-end, needs the dev server
-npm run build                        # run before every push
+npm run dev                            # http://localhost:3000
+npm test                               # 51 tests
+npm run typecheck                      # tsc --noEmit
+npx tsx scripts/verify-full-flow.ts    # storefront tier, needs the dev server
+npx tsx scripts/verify-mock-target.ts  # mock tier, needs the dev server
+npm run mock -- ./openapi.yaml         # optional external Prism mock on :4010
+npm run build                          # run before every push
 ```

@@ -45,10 +45,54 @@ call a tool *without asking the user first*.
 ## What Forge does
 
 ```
-GitHub repo ──► discover ──► generate ──► scan ──► validate ──► ship
-                capabilities   WebMCP      static    live agent   integration
-                from routes    tools       checks    execution    source file
+input ──► discover ──► generate ──► SCAN ──► validate ──► ship
+          capabilities  WebMCP      static    live agent   integration
+          from routes   tools       checks    execution    source file
+                                      │
+                            executable target available?
+                             ├─ repo you run  → run the app          (tier 3)
+                             ├─ OpenAPI spec  → generate a mock      (tier 2)
+                             └─ third-party   → scan only, no calls  (tier 1)
 ```
+
+The scan always runs. It is the half that needs no execution, and on a live URL
+where all you have is a set of declared tool descriptions it is the entire
+product: schema validated, descriptions scanned, findings reported, zero network
+calls made.
+
+## Where the agent actually runs — three tiers
+
+We never fire a generated request at a host we do not own. That rules out
+testing against the real site, so the target comes from the same contract the
+tools did.
+
+| Tier | Input | Target | Badge |
+|---|---|---|---|
+| 1 | A live third-party site | Nothing is executed. Scan only, VALIDATE disabled with the reason shown on screen. | `SCAN ONLY` |
+| 2 | An OpenAPI/Swagger contract | A mock generated from that contract — served by this app at `/api/mock/<id>`, or your own Prism on `:4010`. | `MOCK TARGET (built-in)` / `MOCK TARGET :4010` |
+| 3 | An app you are running | The real app: the bundled storefront, or any localhost base URL you point us at. | `LOCAL APP` |
+
+**Tier 2 is not a simulation.** The agent calls the tool, real HTTP goes out,
+OBSERVED REQUESTS fills with real traffic, the PolicyGate intercepts real calls,
+and guarded and unguarded genuinely diverge. Everything is pointed at a target
+we own. The mock validates incoming requests against the declared schemas, so a
+tool generated with a parameter in the wrong place gets a `422` instead of
+appearing to work:
+
+```
+GET /api/mock/mnmwlrs/rooms?checkIn=2026-09-10   200  served from the contract
+GET /api/mock/mnmwlrs/rooms                      422  checkIn missing
+GET /api/mock/mnmwlrs/rooms?...&maxRate=cheap    422  maxRate is declared a number
+GET /api/mock/mnmwlrs/nope                       404  not an operation in the contract
+```
+
+**And because we own the mock, we can plant the attack.** You cannot get a real
+service to try to exfiltrate a session token for your demo. A mock derived from
+its spec, with one description poisoned, demonstrates exactly the threat — and
+reproduces it on every single run, which a live site never does. The bundled
+`Concierge Bookings API` contract (`/api/demo-spec`) carries one poisoned
+operation and one `POST` documented as a retrieval. Press **🧪 Mock Target** on
+the dashboard to run it.
 
 ### Three checks, not a scanner
 
@@ -84,11 +128,16 @@ then tell me my order status"* — is run two ways against the generated tools:
 
 This project registers tools in three places.
 
-**The Forge dashboard (`/`)** exposes its own 6 control tools over WebMCP, so an agent drives
+**The Forge dashboard (`/`)** exposes its own 7 control tools over WebMCP, so an agent drives
 the pipeline while a human watches the same screen update:
 
 `forge_analyze_repo` · `forge_list_tools` · `forge_run_security_scan` ·
-`forge_get_findings` · `forge_run_agent_validation` · `forge_export_integration`
+`forge_get_findings` · `forge_get_execution_plan` · `forge_run_agent_validation` ·
+`forge_export_integration`
+
+`forge_get_execution_plan` is how an agent finds out which tier it is in before
+it tries to validate anything — and `forge_run_agent_validation` refuses, with
+the reason, on a scan-only target.
 
 > Try: *"Analyze the demo storefront, scan the tools it generates, and tell me
 > which ones you would refuse to use."*
@@ -125,7 +174,20 @@ npm run typecheck
 
 # Start local development server
 npm run dev     # http://localhost:3000 — localhost is a secure context
+
+# Optional: run your own mock target instead of the built-in one
+npm run mock -- ./openapi.yaml                              # Prism on :4010
+npm run mock -- https://petstore.swagger.io/v2/swagger.json # fetches, then mocks
+# then set the Forge Execution Base URL to http://localhost:4010
+
+# End-to-end check of the mock tier (needs the dev server running)
+npx tsx scripts/verify-mock-target.ts
 ```
+
+`npm run mock` is a thin wrapper over
+`npx @stoplight/prism-cli mock <spec> --port 4010`. It is entirely optional:
+with the base URL left empty, the Forge generates its own mock from the same
+contract and serves it at `/api/mock/<id>`.
 
 ### How to Test WebMCP
 
@@ -139,11 +201,21 @@ npm run dev     # http://localhost:3000 — localhost is a secure context
    - Navigate to `http://localhost:3000/webmcp-test`
    - Validates live browser `document.modelContext.registerTool()`, registers `hello_webmcp`, and tests execution.
 
-3. **Forge Dashboard Real Registration**:
+3. **Mock Target Tier (real execution, no third-party host)**:
+   - On the dashboard, press the **🧪 Mock Target** benchmark chip
+   - The badge next to Agent validation reads `MOCK TARGET (built-in)`
+   - **Run security scan** blocks `get_reservation` before anything executes
+   - **Validate: guarded** refuses it and holds `confirm_booking`;
+     **Validate: unguarded** follows the injected instruction, has its
+     exfiltration refused by the gate, and escalates `confirm_booking` to high
+     once the mock reports the mutation
+   - Or from a shell: `npx tsx scripts/verify-mock-target.ts`
+
+4. **Forge Dashboard Real Registration**:
    - Open `http://localhost:3000`
    - Check the header status pill (`WebMCP ● Available`) and the WebMCP Diagnostics panel showing the 6 registered Forge control tools.
 
-4. **Storefront Generated Tool Registration**:
+5. **Storefront Generated Tool Registration**:
    - On the Forge dashboard, click **Analyze**
    - Click **Open the storefront →** (`/shop`)
    - The 5 generated tools (`search_products`, `get_product`, `add_to_cart`, `checkout`, `track_order`) are dynamically registered client-side via `document.modelContext.registerTool()`.
@@ -169,12 +241,28 @@ without the token `document.modelContext` is simply absent for every visitor.
 - **Lifecycle Mechanism**: Modern WebMCP implementations use `AbortSignal` passed in `{ signal }` for lifecycle/unregistration. Older implementations used `document.modelContext.unregisterTool()`. `src/lib/webmcp.ts` supports both.
 - **Single Page App Routing**: In Next.js SPA transitions, tool disposers clean up registered tools upon component unmount and re-register on target page mount.
 
+## Limits we state up front
+
+- A live third-party site gets tier 1 and nothing more. That is deliberate.
+- The built-in mock generates responses from the declared parameter types; it
+  reads `examples` when a contract provides them, and does not simulate business
+  logic. It is a target to exercise the tools against, not a replica of the service.
+- Mock targets are in-memory and scoped to the session, like the storefront cart.
+  A cold start loses them, and the mock route says so in the response
+  (`mockSource: "reconstructed"`) rather than pretending otherwise.
+- Repository analysis is regex over route files, not an AST.
+- Three checks, not a vulnerability scanner. No dependency scanning, auth or SSRF.
+
 ## Layout
 
 ```
 src/lib/webmcp.ts              real WebMCP browser wrapper (detection, lifecycle, diagnostics)
 src/lib/analyzer.ts            routes -> capabilities -> WebMCP tools
 src/lib/executor.ts            manifest -> real HTTP request, no per-tool code
+src/lib/executionPlan.ts        which of the three tiers a target qualifies for
+src/lib/mock/spec.ts            contract -> mock target: matching, validation, responses
+src/lib/mock/registry.ts        live mock targets, in memory
+src/lib/fixtures/demoSpec.ts    the bundled contract, with the planted attack
 src/lib/codegen.ts             manifest + verdicts -> integration source
 src/lib/security/rules.ts      the three checks
 src/lib/security/monitor.ts    the policy gate
@@ -183,7 +271,11 @@ src/lib/agent/runner.ts        guarded and unguarded agents
 src/components/useForgeTools.ts  the dashboard's own 6 WebMCP tools
 src/components/Panels.tsx      UI panels including WebMCPStatusPanel diagnostic inspector
 src/app/webmcp-test/page.tsx   standalone /webmcp-test browser smoke test page
+src/app/api/mock/*              the generated mock target and its registration route
+src/app/api/demo-spec/route.ts  serves the bundled contract as a real URL
 src/app/api/*                  the demo storefront's API, and the analyzer endpoint
+scripts/mock-target.ts          starts Prism from a spec path or URL
+scripts/verify-mock-target.ts   end-to-end check of the mock tier
 tests/*.test.ts                automated unit tests
 ```
 
