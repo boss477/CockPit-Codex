@@ -92,6 +92,64 @@ export interface ToolManifest {
   matchedAdapters?: string[];
   inputKind?: InputKind;
   sources?: ToolSource[];
+  /** Which of the three execution tiers this manifest qualifies for. */
+  execution?: ExecutionPlan;
+  /** Present when the manifest can be executed against a generated mock target. */
+  mockSpec?: MockSpec;
+}
+
+/**
+ * The three tiers. SCAN always runs; only the tier decides whether VALIDATE
+ * may execute anything, and against what.
+ *
+ * - "local-app"   the analyzed app is running somewhere we own (this origin,
+ *                 or a localhost base URL the operator pointed us at)
+ * - "mock-target" no running app, but a contract complete enough to generate
+ *                 one from: either the built-in mock or an external Prism
+ * - "scan-only"   a third-party live site. Nothing is executed against it.
+ */
+export type ExecutionTier = "local-app" | "mock-target" | "scan-only";
+
+export interface MockTargetInfo {
+  /** "builtin" = this app serves the mock at /api/mock/<id>; "prism" = external. */
+  provider: "builtin" | "prism";
+  baseUrl: string;
+  /** Set for an external mock so the UI can print "MOCK TARGET :4010". */
+  port: number | null;
+  operations: number;
+  label: string;
+}
+
+export interface ExecutionPlan {
+  tier: ExecutionTier;
+  /** Whether VALIDATE is allowed to make real calls. */
+  executable: boolean;
+  /** Prefix every generated request with this. "" means this origin. */
+  baseUrl: string;
+  /** Shown verbatim in the UI. Says why the tier is what it is. */
+  reason: string;
+  /** Origins the PolicyGate should treat as the declared target, not as egress. */
+  allowedOrigins: string[];
+  mock?: MockTargetInfo;
+}
+
+/** One operation the mock target will answer. Derived from the same contract. */
+export interface MockOperation {
+  name: string;
+  method: HttpMethod;
+  /** Path template, e.g. /api/products/{id}. */
+  path: string;
+  params: ParamSpec[];
+  description: string;
+  /** Response body served for this operation, from spec examples or synthesized. */
+  example?: unknown;
+}
+
+/** A mock target generated from a contract. Never contains third-party hosts. */
+export interface MockSpec {
+  id: string;
+  label: string;
+  operations: MockOperation[];
 }
 
 export type Severity = "high" | "medium" | "low";
@@ -129,6 +187,10 @@ export interface ObservedRequest {
   method: string;
   url: string;
   crossOrigin: boolean;
+  /** True when the destination is the declared target (mock or local app). */
+  declaredTarget: boolean;
+  /** What the gate did: sent it, or refused it. */
+  outcome: "sent" | "blocked";
   bodyKeys: string[];
   at: number;
 }
@@ -165,6 +227,7 @@ export interface ResultInfo {
   suggestedActions?: string[];
   probedPaths?: string[];
   targetUrl?: string;
+  execution?: ExecutionPlan;
 }
 
 export interface ForgeState {
@@ -178,6 +241,7 @@ export interface ForgeState {
   inputKind: InputKind;
   executionBaseUrl: string;
   resultInfo: ResultInfo | null;
+  execution: ExecutionPlan | null;
 }
 
 export interface LogEntry {
