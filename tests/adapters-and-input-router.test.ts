@@ -329,7 +329,6 @@ describe("Universal Live Website Analyzer (Any Website)", () => {
     assert.ok(audit.tools.length > 0);
     const names = audit.tools.map((t) => t.name);
     assert.ok(names.includes("search_videos"));
-    assert.ok(names.includes("select_video"));
     assert.ok(names.includes("play_pause"));
     assert.ok(names.includes("get_video_details"));
   });

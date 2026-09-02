@@ -175,16 +175,6 @@ const DOMAIN_ARCHETYPES: DomainArchetype[] = [
         ],
       },
       {
-        name: "select_video",
-        method: "POST",
-        path: "/watch",
-        description: "Click and open a video from the YouTube search results or homepage.",
-        readOnly: false,
-        params: [
-          { name: "index", type: "number", in: "body", required: false, description: "Index of video to open (default 0)." },
-        ],
-      },
-      {
         name: "play_pause",
         method: "POST",
         path: "/api/player/play-pause",

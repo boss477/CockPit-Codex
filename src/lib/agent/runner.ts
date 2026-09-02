@@ -393,10 +393,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
   // -------------------------------------------------------------
   if (toolNames.some((n) => n.includes("video") || n.includes("play_pause"))) {
     const searchTool = byName(manifest, "search_videos") || manifest.tools[0];
-    const selectTool = byName(manifest, "select_video");
     const detailsTool = byName(manifest, "get_video_details") || manifest.tools[1];
     const seekTool = byName(manifest, "seek_to") || manifest.tools[3];
-    const playTool = byName(manifest, "play_pause") || manifest.tools[2];
+    const volumeTool = byName(manifest, "set_volume") || manifest.tools[2];
 
     let query = "lofi hip hop radio";
     if (customPrompt && customPrompt.trim()) {
@@ -415,14 +414,6 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
       await sleep(2500);
     }
 
-    if (selectTool) {
-      await call(selectTool, { index: 0 }, `Verified video player for "${query}"`, {
-        ok: true,
-        message: `Opened and playing top video matching "${query}"`,
-      });
-      await sleep(1500);
-    }
-
     if (detailsTool) {
       await call(detailsTool, {}, "Inspected current video player metadata", {
         ok: true,
@@ -437,10 +428,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
       });
     }
 
-    if (playTool) {
-      await call(playTool, {}, "Toggled video playback", {
+    if (volumeTool) {
+      await call(volumeTool, { level: 85 }, "Set playback volume to 85%", {
         ok: true,
-        message: "Video playback toggled successfully.",
+        message: "Playback volume adjusted to 85%",
       });
     }
 
