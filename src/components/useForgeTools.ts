@@ -114,7 +114,7 @@ export function useForgeTools() {
           "Report which of the three execution tiers the analyzed target qualifies for, " +
           "and the target validation would run against: 'local-app' (an app we own), " +
           "'mock-target' (a mock generated from the same contract as the tools), or " +
-          "'scan-only' (a third-party site that is scanned but never called). Call this " +
+          "'security-scan' (a third-party site that is scanned but never called). Call this " +
           "before forge_run_agent_validation to know whether validation can run at all.",
         inputSchema: { type: "object", properties: {} },
         annotations: { readOnlyHint: true },
@@ -144,7 +144,7 @@ export function useForgeTools() {
           "Execute the generated tools against the declared target and report what they " +
           "actually did. The target is whatever forge_get_execution_plan reports: this " +
           "app, an app you are running, or a mock generated from the contract. A " +
-          "'scan-only' target refuses to run. Mode 'unguarded' follows instructions found " +
+          "'security-scan' target refuses to run. Mode 'unguarded' follows instructions found " +
           "in tool descriptions; mode 'guarded' refuses blocked tools and ignores " +
           "metadata directives.",
         inputSchema: {
@@ -166,7 +166,7 @@ export function useForgeTools() {
           }
           store.note("agent", `Agent started the ${mode} validation run`);
           const steps = await store.validate(mode, "agent");
-          if (!steps) return { ok: false, error: "Nothing analyzed yet, or the target is scan-only." };
+          if (!steps) return { ok: false, error: "Nothing analyzed yet, or the target is security-scan only." };
           return {
             ok: true,
             mode,

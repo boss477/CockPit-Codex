@@ -224,7 +224,7 @@ export function Dashboard() {
           {plan ? (
             <ExecutionBadge plan={plan} />
           ) : (
-            <span className="pill pill-idle">SCAN ALWAYS RUNS</span>
+            <span className="pill pill-idle">SECURITY SCAN</span>
           )}
           <span className="subtle">
             {plan

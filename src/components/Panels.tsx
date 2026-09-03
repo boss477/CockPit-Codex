@@ -94,7 +94,7 @@ export function ExecutionPanel({ plan }: { plan: ExecutionPlan | null }) {
         <ExecutionBadge plan={plan} />
         <span className="subtle uppercase font-semibold">
           {plan.tier === "scan-only"
-            ? "Tier 1 - scan only"
+            ? "Tier 1 - Security Scan"
             : plan.tier === "mock-target"
               ? "Tier 2 - generated mock target"
               : "Tier 3 - real execution"}
@@ -111,7 +111,7 @@ export function ExecutionPanel({ plan }: { plan: ExecutionPlan | null }) {
       <p className="subtle">{plan.reason}</p>
       {plan.tier === "scan-only" && (
         <p className="subtle">
-          The scan still runs, and it is the finding that matters here - it needs no
+          The security scan still runs, and it is the finding that matters here — it needs no
           execution. To validate this target, run it (or a mock of it) yourself and set the
           base URL under Execution Settings.
         </p>

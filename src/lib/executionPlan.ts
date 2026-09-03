@@ -200,7 +200,7 @@ export function resolveExecutionPlan(input: PlanInput): PlanResult {
 /** Short label for the badge next to the validation panel. */
 export function planBadge(plan: ExecutionPlan | null): string {
   if (!plan) return "NO TARGET";
-  if (plan.tier === "scan-only") return "SCAN ONLY";
+  if (plan.tier === "scan-only") return "SECURITY SCAN";
   if (plan.tier === "local-app") return "LOCAL APP";
   if (plan.mock?.provider === "prism") {
     return plan.mock.port ? `MOCK TARGET :${plan.mock.port}` : "MOCK TARGET";
