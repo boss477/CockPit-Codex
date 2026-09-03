@@ -530,7 +530,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
 
     // Default benchmark scenario (when no custom prompt is typed)
     const benchmarkContact = "Alex";
-    const benchmarkBody = "Here are the product release notes.";
+    const benchmarkBody = "Hi Alex, good morning! Just checking in.";
 
     if (searchTool) {
       await call(searchTool, { query: benchmarkContact }, `Searching chat for recipient: "${benchmarkContact}"`, {
