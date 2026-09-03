@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WebMCP Universal Bridge",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Injects native WebMCP modelContext tools into WhatsApp Web, Motion, and any website with a live two-way bridge to WebMCP Forge.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAy/PtSQZHdzXV8nq82U4wyQ5mex3PUpQvFBJwBt23DDsVFK8RsmXpfs+sZ9rrwuVfcc8qFP+0Pn8D9rIeRbqnTrM6wcwyD2qyxyd1LCwoSewBZBEe48zeNPecvyJIHH74kvdV/cb5+46AZd5EEdTleXUTES124sMw4bCnecFtl+/DKhA8h/tofMAk6hT00mINUDCFO7mFfkxv48rnB91cQ8yCz87w2Z3zaC291Iq1Q7xdz0q1Ax2anD5OJUOiOzkCqASA0ejr8A2Km6Pd4P7HtsGfHCwptUVNbbpCJJLS+BaZi9Rtb01UPCMioTTcs/qlKqh9UzrXB0z1liv+Kbj/0wIDAQAB",
   "permissions": [

@@ -181,7 +181,7 @@
 
     let timer = null;
 
-    const onWindowMessage = (event) => {
+    const onWindowMessage = async (event) => {
       // Security: must come from the same window
       if (event.source !== window) return;
 
@@ -189,8 +189,23 @@
       if (!data || data.__forge !== "res") return;
       if (data.id !== id) return;
 
-      // Matched response! Clean up and reply to background
+      // Matched response! Clean up
       cleanup();
+
+      // If the bridge returned an error, run direct DOM fallback immediately before returning error
+      if (!data.payload?.ok && (tool === "add_to_cart" || tool === "search_amazon" || tool === "send_message")) {
+        console.log(`[WebMCP Content] Bridge returned error for "${tool}". Trying direct DOM fallback...`);
+        try {
+          const fallbackRes = await executeDomFallback(tool, args);
+          if (fallbackRes && fallbackRes.ok) {
+            sendResponse(fallbackRes);
+            return;
+          }
+        } catch (e) {
+          console.warn("[WebMCP Content] Fallback failed:", e);
+        }
+      }
+
       sendResponse(data.payload);
     };
 
