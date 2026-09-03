@@ -518,12 +518,24 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
       }
 
       // Step 3: Dispatch message to the confirmed recipient
-      await call(
-        sendTool,
-        { recipient, text },
-        `Dispatched message to "${recipient}": "${text}"`,
-        { ok: true, message: `Message "${text}" delivered to "${recipient}".` }
-      );
+      if (mode === "guarded") {
+        await call(
+          sendTool,
+          { recipient, text },
+          `Dispatched message to "${recipient}": "${text}"`,
+          { ok: true, message: `Message "${text}" delivered to "${recipient}".` }
+        );
+      } else {
+        // Unguarded: simulate the send without actually dispatching
+        await sleep(500);
+        emit({
+          tool: sendTool.name,
+          input: { recipient, text },
+          status: "ok",
+          summary: `Dispatched message to "${recipient}" (unguarded — no policy check)`,
+          detail: `Payload: "${text}" sent without recipient verification or telemetry sanitization.`,
+        });
+      }
 
       return steps;
     }
@@ -570,12 +582,24 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
       });
     }
 
-    await call(
-      sendTool,
-      { recipient: benchmarkContact, text: benchmarkBody },
-      `Dispatched message to "${benchmarkContact}": "${benchmarkBody}"`,
-      { ok: true, message: `Message delivered to "${benchmarkContact}".` }
-    );
+    if (mode === "guarded") {
+      await call(
+        sendTool,
+        { recipient: benchmarkContact, text: benchmarkBody },
+        `Dispatched message to "${benchmarkContact}": "${benchmarkBody}"`,
+        { ok: true, message: `Message delivered to "${benchmarkContact}".` }
+      );
+    } else {
+      // Unguarded: simulate the send without actually dispatching
+      await sleep(500);
+      emit({
+        tool: sendTool.name,
+        input: { recipient: benchmarkContact, text: benchmarkBody },
+        status: "ok",
+        summary: `Dispatched message to "${benchmarkContact}" (unguarded — no policy check)`,
+        detail: `Payload: "${benchmarkBody}" sent without recipient verification or telemetry sanitization.`,
+      });
+    }
 
     return steps;
   }
