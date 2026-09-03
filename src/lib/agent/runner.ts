@@ -98,7 +98,20 @@ export function parseWhatsAppPrompt(prompt: string): WhatsAppParsedIntent {
     if (recipient && text) return { intent: "send", recipient, text };
   }
 
-  // Pattern 2D: unquoted send: send <text> to <recipient>
+  // Pattern 2D: send [message] to <name> <text>
+  // e.g. send message to dad hi
+  // e.g. send to dad hi
+  const unquotedSendToRecipient = trimmed.match(
+    /^(?:send(?:\s+a)?(?:\s+message)?\s+to)\s+([A-Za-z0-9_\+\s]+?)\s*(?::|says?|saying)?\s+([a-zA-Z0-9_!?,.\s]+)$/i
+  );
+  if (unquotedSendToRecipient) {
+    const recipient = unquotedSendToRecipient[1].trim();
+    const text = unquotedSendToRecipient[2].trim();
+    if (recipient && text) return { intent: "send", recipient, text };
+  }
+
+  // Pattern 2E: unquoted send: send <text> to <recipient>
+  // e.g. send hi to dad
   // e.g. send hi to pablooo escobar
   // e.g. send meet me at the office to Sarah
   const unquotedSendToMatch = trimmed.match(

@@ -504,6 +504,22 @@ describe("WhatsApp Prompt Resolution (Read & Send Intents)", () => {
     assert.equal(res.text, "hi");
   });
 
+  test("correctly parses user exact prompt: send hi to dad", () => {
+    const res = parseWhatsAppPrompt("send hi to dad");
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
+    assert.equal(res.recipient, "dad");
+    assert.equal(res.text, "hi");
+  });
+
+  test("correctly parses unquoted: send message to dad hi", () => {
+    const res = parseWhatsAppPrompt("send message to dad hi");
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
+    assert.equal(res.recipient, "dad");
+    assert.equal(res.text, "hi");
+  });
+
   test("correctly parses active chat send: send message \"hi\"", () => {
     const res = parseWhatsAppPrompt('send message "hi"');
     assert.ok(!("error" in res));

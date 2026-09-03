@@ -80,7 +80,14 @@
         searchBox.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
         await new Promise((r) => setTimeout(r, 400));
         const first = document.querySelector('div[data-testid="cell-frame-container"]') || document.querySelector('div[role="listitem"]');
-        if (first) first.click();
+        if (first) {
+          first.click();
+          await new Promise((r) => setTimeout(r, 400));
+        } else {
+          const clearBtn = document.querySelector('button[aria-label*="Clear"]') || document.querySelector('span[data-icon="x-alt"]')?.closest("button");
+          if (clearBtn) clearBtn.click();
+          else searchBox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
+        }
       }
       return { ok: true, message: `Searched and selected chat for "${query}"` };
     }

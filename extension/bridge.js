@@ -274,6 +274,18 @@
 
         if (firstResult) {
           firstResult.click();
+          await new Promise((r) => setTimeout(r, 400));
+        } else {
+          // If no search results found, clear the search so the active conversation is not blocked
+          const clearBtn =
+            document.querySelector('button[aria-label*="Clear"]') ||
+            document.querySelector('span[data-icon="x-alt"]')?.closest("button") ||
+            document.querySelector('span[data-icon="x"]')?.closest("button");
+          if (clearBtn) {
+            clearBtn.click();
+          } else {
+            searchBox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true }));
+          }
         }
 
         return { ok: true, message: `Searched and selected chat for "${query}"` };
