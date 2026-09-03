@@ -101,11 +101,18 @@ chrome.runtime.onInstalled.addListener(async () => {
         if (tab.id && tab.url && !tab.url.startsWith("chrome://")) {
           try {
             if (chrome.scripting && chrome.scripting.executeScript) {
+              try {
+                await chrome.scripting.executeScript({
+                  target: { tabId: tab.id },
+                  files: ["bridge.js"],
+                  world: "MAIN",
+                });
+              } catch {}
               await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 files: ["content.js"],
               });
-              console.log(`[WebMCP Background] Connected content.js to existing ${target} tab (${tab.id})`);
+              console.log(`[WebMCP Background] Connected bridge.js (MAIN) & content.js to existing ${target} tab (${tab.id})`);
             }
           } catch (e) {
             // Tab may not be scriptable or unloaded
@@ -190,11 +197,18 @@ chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => 
         if (err || !pong || !pong.ok) {
           try {
             if (chrome.scripting && chrome.scripting.executeScript) {
+              try {
+                await chrome.scripting.executeScript({
+                  target: { tabId: tab.id },
+                  files: ["bridge.js"],
+                  world: "MAIN",
+                });
+              } catch {}
               await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 files: ["content.js"],
               });
-              setTimeout(dispatchExec, 150);
+              setTimeout(dispatchExec, 250);
               return;
             }
           } catch (injectErr) {

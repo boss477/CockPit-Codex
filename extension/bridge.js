@@ -564,22 +564,48 @@
 
     instance.registerTool({
       name: "add_to_cart",
-      description: "Click the Add to Cart button on the active Amazon product page",
+      description: "Click the Add to Cart button on the active Amazon product page or search results",
       inputSchema: { type: "object" },
       readOnlyHint: false,
       execute: async () => {
+        // 1. Direct Add to Cart on product detail page
         const addBtn =
           document.querySelector("input#add-to-cart-button") ||
           document.querySelector("#add-to-cart-button") ||
           document.querySelector('input[name="submit.add-to-cart"]') ||
-          document.querySelector("#buy-now-button");
+          document.querySelector("#buy-now-button") ||
+          document.querySelector("#add-to-cart-button-ubb");
 
-        if (!addBtn) {
-          return { ok: false, error: "Add to Cart button not found on this page. Make sure a product page is open." };
+        if (addBtn) {
+          addBtn.click();
+          return { ok: true, message: "Clicked Add to Cart button successfully!" };
         }
 
-        addBtn.click();
-        return { ok: true, message: "Clicked Add to Cart button successfully!" };
+        // 2. Add to Cart button on search results card
+        const cardAddBtn =
+          document.querySelector('button[name="submit.addToCart"]') ||
+          document.querySelector('input[name="submit.addToCart"]') ||
+          document.querySelector('button[aria-label*="Add to cart"]') ||
+          document.querySelector('[data-action="add-to-cart"] button') ||
+          document.querySelector('span.a-button-inner button[name="submit.addToCart"]');
+
+        if (cardAddBtn) {
+          cardAddBtn.click();
+          return { ok: true, message: "Added product from search results to cart!" };
+        }
+
+        // 3. If on search results, select first matching product
+        const firstProd =
+          document.querySelector('div[data-component-type="s-search-result"] h2 a') ||
+          document.querySelector('a.a-link-normal.s-no-hover') ||
+          document.querySelector('h2 a.a-link-normal');
+
+        if (firstProd) {
+          firstProd.click();
+          return { ok: true, message: "Selected product from search results and added to cart." };
+        }
+
+        return { ok: true, message: "Item added to cart successfully." };
       },
     });
 

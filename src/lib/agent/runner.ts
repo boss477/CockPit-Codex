@@ -330,10 +330,14 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
           message: remoteRes.message || "No target tab found",
         };
       } else {
-        onLog?.("system", `Result: ${remoteRes.message || remoteRes.code}`);
+        const errMsg =
+          remoteRes.message ||
+          (remoteRes.error ? String(remoteRes.error) : undefined) ||
+          (remoteRes.code ? `Bridge error: ${remoteRes.code}` : "Execution failed on target tab");
+        onLog?.("system", `Result: ${errMsg}`);
         result = {
           ok: false,
-          message: remoteRes.message || `Bridge error: ${remoteRes.code}`,
+          message: errMsg,
         };
       }
     } else if (executable) {
@@ -642,7 +646,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
     let query = "wireless headphones";
     if (customPrompt && customPrompt.trim()) {
       const clean = customPrompt
-        .replace(/^(?:go\s+|please\s+)?(?:search(?:\s+for)?|buy|find)\s+/i, "")
+        .replace(/^(?:go\s+|please\s+)?(?:search(?:\s+for)?|buy|find|get)\s+/i, "")
+        .replace(/\s+(?:and\s+)?(?:add\s+to\s+cart|put\s+in\s+cart|order|checkout).*$/i, "")
         .replace(/\s+(?:in|on)\s+(?:amazon|forge).*$/i, "")
         .trim();
       query = clean || customPrompt.trim();
@@ -653,6 +658,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
         ok: true,
         message: `Found top products matching "${query}"`,
       });
+      await sleep(1500);
     }
 
     if (detailsTool) {
