@@ -308,7 +308,7 @@ export function Dashboard() {
               Analyze
             </button>
             <button className="btn" disabled={busy || !hasManifest} onClick={() => run(() => store.scan())}>
-              Run security scan
+              Security Scan
             </button>
             <button
               className="btn"
