@@ -659,32 +659,33 @@
       readOnlyHint: false,
       execute: async () => {
         // 1. Direct Add to Cart on product detail page
-        const addBtn =
+        const productBtn =
           document.querySelector("input#add-to-cart-button") ||
           document.querySelector("#add-to-cart-button") ||
           document.querySelector('input[name="submit.add-to-cart"]') ||
           document.querySelector("#buy-now-button") ||
           document.querySelector("#add-to-cart-button-ubb");
 
-        if (addBtn) {
-          addBtn.click();
-          return { ok: true, message: "Clicked Add to Cart button successfully!" };
+        if (productBtn) {
+          productBtn.click();
+          return { ok: true, message: "Clicked Add to Cart button on product page!" };
         }
 
-        // 2. Add to Cart button on search results card
-        const cardAddBtn =
-          document.querySelector('button[name="submit.addToCart"]') ||
-          document.querySelector('input[name="submit.addToCart"]') ||
-          document.querySelector('button[aria-label*="Add to cart"]') ||
-          document.querySelector('[data-action="add-to-cart"] button') ||
-          document.querySelector('span.a-button-inner button[name="submit.addToCart"]');
+        // 2. Search results page: Find ANY button/element with text "Add to cart"
+        const clickables = Array.from(
+          document.querySelectorAll('button, input[type="button"], input[type="submit"], a, span.a-button, div[data-action="add-to-cart"]')
+        );
+        const searchAddBtn = clickables.find((el) => {
+          const txt = (el.textContent || el.value || el.getAttribute("aria-label") || "").trim().toLowerCase();
+          return txt === "add to cart" || txt.startsWith("add to cart");
+        });
 
-        if (cardAddBtn) {
-          cardAddBtn.click();
-          return { ok: true, message: "Added product from search results to cart!" };
+        if (searchAddBtn) {
+          searchAddBtn.click();
+          return { ok: true, message: "Clicked 'Add to cart' button on search results card!" };
         }
 
-        // 3. If on search results, select first matching product
+        // 3. Fallback: select first matching product link
         const firstProd =
           document.querySelector('div[data-component-type="s-search-result"] h2 a') ||
           document.querySelector('a.a-link-normal.s-no-hover') ||

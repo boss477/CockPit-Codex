@@ -432,7 +432,7 @@ describe("OpenAPI Ingestion (parseOpenApiSpec)", () => {
   });
 });
 
-import { parseWhatsAppPrompt } from "../src/lib/agent/runner";
+import { parseWhatsAppPrompt, cleanAmazonQuery } from "../src/lib/agent/runner";
 
 describe("WhatsApp Prompt Resolution (Read & Send Intents)", () => {
   test("correctly parses read intent with typo: what was the last messgage in pablooo escobar chat", () => {
@@ -558,4 +558,27 @@ describe("WhatsApp Prompt Resolution (Read & Send Intents)", () => {
     assert.match(res.error, /Could not determine whether to read chat or send message/);
   });
 });
+
+describe("Amazon Query Sanitizer", () => {
+  test("cleans prompt: search iphone 16 pro and add it to the cart", () => {
+    const query = cleanAmazonQuery("search iphone 16 pro and add it to the cart");
+    assert.equal(query, "iphone 16 pro");
+  });
+
+  test("cleans prompt: search chips and add to cart", () => {
+    const query = cleanAmazonQuery("search chips and add to cart");
+    assert.equal(query, "chips");
+  });
+
+  test("cleans prompt: buy macbook pro on amazon", () => {
+    const query = cleanAmazonQuery("buy macbook pro on amazon");
+    assert.equal(query, "macbook pro");
+  });
+
+  test("cleans prompt: search wireless mouse and put in cart", () => {
+    const query = cleanAmazonQuery("search wireless mouse and put in cart");
+    assert.equal(query, "wireless mouse");
+  });
+});
+
 

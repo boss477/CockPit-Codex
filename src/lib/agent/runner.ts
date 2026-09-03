@@ -167,6 +167,14 @@ export function parseWhatsAppPrompt(prompt: string): WhatsAppParsedIntent {
   };
 }
 
+export function cleanAmazonQuery(prompt: string): string {
+  return prompt
+    .replace(/^(?:go\s+|please\s+)?(?:search(?:\s+for)?|buy|find|get)\s+/i, "")
+    .replace(/\s+(?:and\s+)?(?:add(?:\s+it)?(?:\s+to)?(?:\s+the)?\s+cart|put(?:\s+it)?(?:\s+in)?(?:\s+the)?\s+cart|order|checkout).*$/i, "")
+    .replace(/\s+(?:in|on)\s+(?:amazon|forge).*$/i, "")
+    .trim();
+}
+
 export function getTaskForManifest(manifest: ToolManifest | null): string {
   if (!manifest || manifest.tools.length === 0) {
     return "Execute workflow against discovered WebMCP tools.";
@@ -686,11 +694,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
 
     let query = "wireless headphones";
     if (customPrompt && customPrompt.trim()) {
-      const clean = customPrompt
-        .replace(/^(?:go\s+|please\s+)?(?:search(?:\s+for)?|buy|find|get)\s+/i, "")
-        .replace(/\s+(?:and\s+)?(?:add\s+to\s+cart|put\s+in\s+cart|order|checkout).*$/i, "")
-        .replace(/\s+(?:in|on)\s+(?:amazon|forge).*$/i, "")
-        .trim();
+      const clean = cleanAmazonQuery(customPrompt);
       query = clean || customPrompt.trim();
     }
 

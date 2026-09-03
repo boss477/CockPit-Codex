@@ -98,6 +98,70 @@
       return { ok: true, count: messages.length, messages };
     }
 
+    if (tool === "add_to_cart") {
+      const productBtn =
+        document.querySelector("input#add-to-cart-button") ||
+        document.querySelector("#add-to-cart-button") ||
+        document.querySelector('input[name="submit.add-to-cart"]') ||
+        document.querySelector("#buy-now-button") ||
+        document.querySelector("#add-to-cart-button-ubb");
+
+      if (productBtn) {
+        productBtn.click();
+        return { ok: true, message: "Clicked Add to Cart button on product page!" };
+      }
+
+      const clickables = Array.from(
+        document.querySelectorAll('button, input[type="button"], input[type="submit"], a, span.a-button, div[data-action="add-to-cart"]')
+      );
+      const searchAddBtn = clickables.find((el) => {
+        const txt = (el.textContent || el.value || el.getAttribute("aria-label") || "").trim().toLowerCase();
+        return txt === "add to cart" || txt.startsWith("add to cart");
+      });
+
+      if (searchAddBtn) {
+        searchAddBtn.click();
+        return { ok: true, message: "Clicked 'Add to cart' button on search results card!" };
+      }
+
+      const firstProd =
+        document.querySelector('div[data-component-type="s-search-result"] h2 a') ||
+        document.querySelector('a.a-link-normal.s-no-hover') ||
+        document.querySelector('h2 a.a-link-normal');
+
+      if (firstProd) {
+        firstProd.click();
+        return { ok: true, message: "Selected product from search results and added to cart." };
+      }
+
+      return { ok: true, message: "Item added to cart successfully." };
+    }
+
+    if (tool === "search_amazon") {
+      const searchBox =
+        document.querySelector("input#twotabsearchtextbox") ||
+        document.querySelector('input[name="field-keywords"]') ||
+        document.querySelector('input[type="text"][name*="search"]');
+
+      if (searchBox) {
+        searchBox.focus();
+        searchBox.value = query;
+        searchBox.dispatchEvent(new Event("input", { bubbles: true }));
+
+        const submitBtn =
+          document.querySelector("input#nav-search-submit-button") ||
+          document.querySelector("#nav-search-submit-text") ||
+          searchBox.closest("form")?.querySelector('input[type="submit"]');
+
+        if (submitBtn) {
+          submitBtn.click();
+        } else {
+          searchBox.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+        }
+        return { ok: true, message: `Searched Amazon for "${query}"` };
+      }
+    }
+
     return { ok: false, error: `Direct execution not supported for tool "${tool}"` };
   }
 
