@@ -240,9 +240,6 @@ export default function WebMCPTestPage() {
           <Link href="/" className="btn">
             ← Back to Forge
           </Link>
-          <Link href="/shop" className="btn">
-            Storefront →
-          </Link>
         </div>
       </header>
 

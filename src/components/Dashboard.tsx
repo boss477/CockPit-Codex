@@ -205,9 +205,6 @@ export function Dashboard() {
           <Link href="/webmcp-test" className="btn">
             Smoke test
           </Link>
-          <Link href="/shop" className="btn">
-            Open the storefront →
-          </Link>
         </div>
       </header>
 

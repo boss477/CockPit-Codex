@@ -586,7 +586,6 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
   if (toolNames.some((n) => n.includes("video") || n.includes("play_pause"))) {
     const searchTool = byName(manifest, "search_videos") || manifest.tools[0];
     const detailsTool = byName(manifest, "get_video_details") || manifest.tools[1];
-    const seekTool = byName(manifest, "seek_to") || manifest.tools[3];
     const volumeTool = byName(manifest, "set_volume") || manifest.tools[2];
 
     let query = "lofi hip hop radio";
@@ -610,13 +609,6 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
       await call(detailsTool, {}, "Inspected current video player metadata", {
         ok: true,
         message: `Playing "${query}", video details retrieved`,
-      });
-    }
-
-    if (seekTool) {
-      await call(seekTool, { seconds: 120 }, "Jumped playback forward by 120s", {
-        ok: true,
-        message: "Current time set to 120s",
       });
     }
 
