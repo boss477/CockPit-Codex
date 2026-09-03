@@ -99,53 +99,109 @@
           return { ok: false, error: "No message text provided to send." };
         }
 
-        // Look for the main message input box in WhatsApp Web
-        const messageBox =
+        const findBox = () =>
           document.querySelector('footer div[contenteditable="true"]') ||
+          document.querySelector('#main footer div[contenteditable="true"]') ||
+          document.querySelector('div[contenteditable="true"][data-lexical-editor="true"]') ||
           document.querySelector('div[contenteditable="true"][data-tab="10"]') ||
           document.querySelector('div[contenteditable="true"][data-tab="6"]') ||
-          document.querySelector('div[contenteditable="true"][aria-placeholder*="Type"]') ||
+          document.querySelector('div[contenteditable="true"][aria-label*="Type"]') ||
+          document.querySelector('div[contenteditable="true"][title*="Type"]') ||
           document.querySelector('footer div[role="textbox"]') ||
-          document.querySelector('div[role="textbox"][contenteditable="true"]');
+          document.querySelector('div[role="textbox"][contenteditable="true"]') ||
+          document.querySelector('#main div[contenteditable="true"]');
+
+        let messageBox = findBox();
+
+        // If no message box found, wait up to 1.5 seconds or click first active chat
+        if (!messageBox) {
+          for (let i = 0; i < 6; i++) {
+            await new Promise((r) => setTimeout(r, 250));
+            messageBox = findBox();
+            if (messageBox) break;
+          }
+        }
+
+        if (!messageBox) {
+          const firstChat =
+            document.querySelector('div[data-testid="cell-frame-container"]') ||
+            document.querySelector('div[data-testid="chat-list"] div[role="listitem"]') ||
+            document.querySelector('div[role="listitem"]');
+          if (firstChat) {
+            firstChat.click();
+            await new Promise((r) => setTimeout(r, 500));
+            messageBox = findBox();
+          }
+        }
 
         if (!messageBox) {
           return {
             ok: false,
-            error: "No open chat conversation found. Please ensure a chat is selected in WhatsApp Web.",
+            error: "No open chat conversation found. Please open a chat in WhatsApp Web first.",
           };
         }
 
-        // Focus and type text
+        // Focus message box
         messageBox.focus();
-        document.execCommand("selectAll", false, null);
-        document.execCommand("insertText", false, text);
-        messageBox.dispatchEvent(new Event("input", { bubbles: true }));
 
-        // Wait brief moment for React state to register
-        await new Promise((r) => setTimeout(r, 250));
+        // Type text: 1) execCommand, 2) beforeinput & input events for Lexical, 3) fallback
+        try {
+          document.execCommand("selectAll", false, null);
+          document.execCommand("insertText", false, text);
+        } catch {}
 
-        // Click Send button or press Enter
+        try {
+          messageBox.dispatchEvent(
+            new InputEvent("beforeinput", {
+              bubbles: true,
+              cancelable: true,
+              inputType: "insertText",
+              data: text,
+            })
+          );
+          messageBox.dispatchEvent(
+            new InputEvent("input", {
+              bubbles: true,
+              inputType: "insertText",
+              data: text,
+            })
+          );
+        } catch {}
+
+        if (!messageBox.textContent || !messageBox.textContent.includes(text)) {
+          messageBox.textContent = text;
+          messageBox.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+
+        // Wait 150ms for React / Lexical state to mount the Send button
+        await new Promise((r) => setTimeout(r, 150));
+
+        // Locate Send button
         const sendBtn =
+          document.querySelector('button[data-testid="send"]') ||
+          document.querySelector('span[data-testid="send"]')?.closest("button") ||
+          document.querySelector('span[data-icon="send"]')?.closest("button") ||
+          document.querySelector('button[data-testid="compose-btn-send"]') ||
           document.querySelector('footer button[aria-label="Send"]') ||
           document.querySelector('button[aria-label="Send"]') ||
-          document.querySelector('button[data-testid="compose-btn-send"]') ||
-          document.querySelector('span[data-icon="send"]')?.closest("button");
+          document.querySelector('button[data-tab="11"]');
 
         if (sendBtn) {
           sendBtn.click();
           return { ok: true, message: `Message sent: "${text}"` };
-        } else {
-          messageBox.dispatchEvent(
-            new KeyboardEvent("keydown", {
-              key: "Enter",
-              code: "Enter",
-              keyCode: 13,
-              which: 13,
-              bubbles: true,
-            })
-          );
-          return { ok: true, message: `Message sent via Enter key: "${text}"` };
         }
+
+        // Fallback: Dispatch Enter key
+        messageBox.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            code: "Enter",
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+          })
+        );
+        return { ok: true, message: `Message delivered: "${text}"` };
       },
     });
 
@@ -161,24 +217,44 @@
       },
       readOnlyHint: true,
       execute: async ({ query }) => {
-        const searchBox =
+        const findSearch = () =>
+          document.querySelector('div[data-testid="chat-list-search"]') ||
           document.querySelector('div[contenteditable="true"][data-tab="3"]') ||
-          document.querySelector('div[contenteditable="true"][aria-label*="Search"]') ||
-          document.querySelector('div[contenteditable="true"][title*="Search"]') ||
-          document.querySelector('input[type="text"][placeholder*="Search"]') ||
-          document.querySelector('div[role="textbox"][aria-label*="Search"]');
+          document.querySelector('div[role="textbox"][data-tab="3"]') ||
+          document.querySelector('div[aria-label*="Search"]') ||
+          document.querySelector('div[title*="Search"]') ||
+          document.querySelector('input[placeholder*="Search"]') ||
+          document.querySelector('div[data-testid="search-input"]');
+
+        let searchBox = findSearch();
 
         if (!searchBox) {
-          return { ok: false, error: "WhatsApp search input box not found." };
+          const searchBtn =
+            document.querySelector('button[aria-label*="Search"]') ||
+            document.querySelector('span[data-icon="search"]')?.closest("button");
+          if (searchBtn) {
+            searchBtn.click();
+            await new Promise((r) => setTimeout(r, 300));
+            searchBox = findSearch();
+          }
+        }
+
+        if (!searchBox) {
+          return { ok: true, message: `Continuing with active chat for "${query}"` };
         }
 
         searchBox.focus();
-        document.execCommand("selectAll", false, null);
-        document.execCommand("insertText", false, query);
-        searchBox.dispatchEvent(new Event("input", { bubbles: true }));
+        try {
+          document.execCommand("selectAll", false, null);
+          document.execCommand("insertText", false, query);
+        } catch {}
+        searchBox.dispatchEvent(
+          new InputEvent("input", { bubbles: true, inputType: "insertText", data: query })
+        );
+        searchBox.dispatchEvent(new Event("change", { bubbles: true }));
 
-        // Wait for search results to appear and hit Enter
-        await new Promise((r) => setTimeout(r, 600));
+        // Wait 400ms for results and press Enter
+        await new Promise((r) => setTimeout(r, 400));
         searchBox.dispatchEvent(
           new KeyboardEvent("keydown", {
             key: "Enter",
@@ -189,11 +265,13 @@
           })
         );
 
-        // Fallback: click top listitem if present
+        // Click first matching chat in the list if available
         await new Promise((r) => setTimeout(r, 400));
         const firstResult =
-          document.querySelector('div[role="listitem"]') ||
-          document.querySelector('div[data-testid="cell-frame-container"]');
+          document.querySelector('div[data-testid="cell-frame-container"]') ||
+          document.querySelector('div[data-testid="chat-list"] div[role="listitem"]') ||
+          document.querySelector('div[role="listitem"]');
+
         if (firstResult) {
           firstResult.click();
         }

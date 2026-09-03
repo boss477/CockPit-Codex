@@ -68,9 +68,9 @@ export function parseWhatsAppPrompt(prompt: string): WhatsAppParsedIntent {
   // 2. SEND MESSAGE INTENTS
   // -------------------------------------------------------------
 
-  // Pattern 2A: message <name> "<text>" or message "<name>" "<text>"
+  // Pattern 2A: send message to <name> "<text>" or message <name> "<text>"
   const quotedMessageMatch = trimmed.match(
-    /^(?:message|send(?:\s+a)?(?:\s+message)?(?:\s+to)?|text)\s+(?:"([^"]+)"|([A-Za-z0-9_\+\s]+?))\s*(?::|says?|saying)?\s+["“']([^"”']+)["”']$/i
+    /^(?:message|send(?:\s+a)?(?:\s+message)?\s+to|text)\s+(?:"([^"]+)"|([A-Za-z0-9_\+\s]+?))\s*(?::|says?|saying)?\s+["“']([^"”']+)["”']$/i
   );
   if (quotedMessageMatch) {
     const recipient = (quotedMessageMatch[1] || quotedMessageMatch[2] || "").trim();
@@ -111,7 +111,7 @@ export function parseWhatsAppPrompt(prompt: string): WhatsAppParsedIntent {
   }
 
   // Pattern 2E: unquoted message: message <recipient> <single-word text>
-  // e.g. message pablooo escobar hi
+  // e.g. message dad hi or message pablooo escobar hi
   const unquotedMessageMatch = trimmed.match(
     /^(?:message|text)\s+([A-Za-z0-9_\+\s]+?)\s+([a-zA-Z0-9_!?,.]+)$/i
   );
@@ -121,8 +121,36 @@ export function parseWhatsAppPrompt(prompt: string): WhatsAppParsedIntent {
     if (recipient && text) return { intent: "send", recipient, text };
   }
 
+  // -------------------------------------------------------------
+  // 3. SEND DIRECTLY TO ACTIVE / OPEN CHAT
+  // e.g. "send message 'hi'", "message 'hi'", "send 'hi'", "send hi", "hi"
+  // -------------------------------------------------------------
+
+  // Pattern 3A: Quoted text to active chat: send message "hi", send "hi", message "hi", "hi"
+  const activeChatQuotedMatch = trimmed.match(
+    /^(?:send(?:\s+a)?(?:\s+message)?|message|text|say)?\s*["“']([^"”']+)["”']$/i
+  );
+  if (activeChatQuotedMatch) {
+    const text = activeChatQuotedMatch[1].trim();
+    if (text) return { intent: "send", recipient: "Active Chat", text };
+  }
+
+  // Pattern 3B: Unquoted text to active chat: send message hi, send hi, message hi
+  const activeChatUnquotedMatch = trimmed.match(
+    /^(?:send(?:\s+a)?(?:\s+message)?|message|text|say)\s+([a-zA-Z0-9_!?,.]+)$/i
+  );
+  if (activeChatUnquotedMatch) {
+    const text = activeChatUnquotedMatch[1].trim();
+    if (text) return { intent: "send", recipient: "Active Chat", text };
+  }
+
+  // Pattern 3C: Single-word or short natural greeting: "hi", "hello", "good morning"
+  if (/^(?:hi|hello|hey|good\s+(?:morning|evening|afternoon)|sup|yo)$/i.test(trimmed)) {
+    return { intent: "send", recipient: "Active Chat", text: trimmed };
+  }
+
   return {
-    error: `Could not determine whether to read chat or send message. For reading, try: "what was the last message in <contact> chat". For sending, try: message "<contact>" "<text>" or send "<text>" to <contact>.`,
+    error: `Could not determine whether to read chat or send message. For reading, try: "what was the last message in <contact> chat". For sending, try: message "<contact>" "<text>", send "<text>" to <contact>, or send "<text>".`,
   };
 }
 
@@ -426,8 +454,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentStep[]> {
       // ---------------------------------------------------------
       const { recipient, text } = parsed;
 
-      // Step 1: Search conversation by resolved recipient name to open their chat thread
-      if (searchTool) {
+      // Step 1: If a specific contact was specified, search and open their chat thread
+      if (recipient !== "Active Chat" && searchTool) {
         await call(
           searchTool,
           { query: recipient },

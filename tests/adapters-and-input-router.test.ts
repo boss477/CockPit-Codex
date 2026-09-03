@@ -496,6 +496,46 @@ describe("WhatsApp Prompt Resolution (Read & Send Intents)", () => {
     assert.equal(res.text, "hello world");
   });
 
+  test("correctly parses: send message to dad \"hi\"", () => {
+    const res = parseWhatsAppPrompt('send message to dad "hi"');
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
+    assert.equal(res.recipient, "dad");
+    assert.equal(res.text, "hi");
+  });
+
+  test("correctly parses active chat send: send message \"hi\"", () => {
+    const res = parseWhatsAppPrompt('send message "hi"');
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
+    assert.equal(res.recipient, "Active Chat");
+    assert.equal(res.text, "hi");
+  });
+
+  test("correctly parses active chat send: send \"hi\"", () => {
+    const res = parseWhatsAppPrompt('send "hi"');
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
+    assert.equal(res.recipient, "Active Chat");
+    assert.equal(res.text, "hi");
+  });
+
+  test("correctly parses active chat send: send hi", () => {
+    const res = parseWhatsAppPrompt("send hi");
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
+    assert.equal(res.recipient, "Active Chat");
+    assert.equal(res.text, "hi");
+  });
+
+  test("correctly parses direct greeting: hi", () => {
+    const res = parseWhatsAppPrompt("hi");
+    assert.ok(!("error" in res));
+    assert.equal(res.intent, "send");
+    assert.equal(res.recipient, "Active Chat");
+    assert.equal(res.text, "hi");
+  });
+
   test("refuses completely ambiguous prompt without fallback", () => {
     const res = parseWhatsAppPrompt("random gibberish prompt 12345");
     assert.ok("error" in res);
